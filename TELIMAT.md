@@ -5,10 +5,10 @@ Bu təlimat layihənin bütün eksperimentlərini GPU olan kompüterdə işlətm
 16 GB GPU-da təxminən 4–6 saat çəkir.
 
 ## 1. Kodu götür
-GitHub-dan (repo-ya dəvət gəlibsə):
+GitHub-dan:
 ```
-git clone <REPO_LINKI>
-cd <repo qovluğu>
+git clone https://github.com/Oghuz20/CrisisAlign.git
+cd CrisisAlign
 ```
 və ya göndərilən `DL_final_project_3_code.zip` faylını aç.
 
