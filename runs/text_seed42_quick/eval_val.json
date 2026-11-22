@@ -1,0 +1,237 @@
+{
+  "clean": {
+    "all": {
+      "text": {
+        "macro_f1": 0.3012256794609736,
+        "accuracy": 0.555,
+        "critical_recall": 0.0625,
+        "ece": 0.09037314757704737,
+        "per_class_f1": {
+          "affected_individuals": 0.1176,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.1333,
+          "other_relevant_information": 0.6786,
+          "rescue_volunteering_or_donation_effort": 0.5766
+        }
+      }
+    },
+    "agree": {
+      "text": {
+        "macro_f1": 0.3131052631578948,
+        "accuracy": 0.575,
+        "critical_recall": 0.0,
+        "ece": 0.15261935889720915,
+        "per_class_f1": {
+          "affected_individuals": 0.0,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.2105,
+          "other_relevant_information": 0.675,
+          "rescue_volunteering_or_donation_effort": 0.68
+        }
+      }
+    },
+    "conflict": {
+      "text": {
+        "macro_f1": 0.26780510018214937,
+        "accuracy": 0.5416666666666666,
+        "critical_recall": 0.09090909090909091,
+        "ece": 0.10606610079606375,
+        "per_class_f1": {
+          "affected_individuals": 0.1667,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.0,
+          "other_relevant_information": 0.6806,
+          "rescue_volunteering_or_donation_effort": 0.4918
+        }
+      }
+    }
+  },
+  "text_missing": {
+    "all": {
+      "text": {
+        "macro_f1": 0.06666666666666667,
+        "accuracy": 0.2,
+        "critical_recall": 0.0,
+        "ece": 0.08895258903503417,
+        "per_class_f1": {
+          "affected_individuals": 0.0,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.0,
+          "other_relevant_information": 0.0,
+          "rescue_volunteering_or_donation_effort": 0.3333
+        }
+      }
+    },
+    "agree": {
+      "text": {
+        "macro_f1": 0.08316831683168316,
+        "accuracy": 0.2625,
+        "critical_recall": 0.0,
+        "ece": 0.026452618837356556,
+        "per_class_f1": {
+          "affected_individuals": 0.0,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.0,
+          "other_relevant_information": 0.0,
+          "rescue_volunteering_or_donation_effort": 0.4158
+        }
+      }
+    },
+    "conflict": {
+      "text": {
+        "macro_f1": 0.05467625899280576,
+        "accuracy": 0.15833333333333333,
+        "critical_recall": 0.0,
+        "ece": 0.13061931530634563,
+        "per_class_f1": {
+          "affected_individuals": 0.0,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.0,
+          "other_relevant_information": 0.0,
+          "rescue_volunteering_or_donation_effort": 0.2734
+        }
+      }
+    }
+  },
+  "image_missing": {
+    "all": {
+      "text": {
+        "macro_f1": 0.3012256794609736,
+        "accuracy": 0.555,
+        "critical_recall": 0.0625,
+        "ece": 0.09037314757704737,
+        "per_class_f1": {
+          "affected_individuals": 0.1176,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.1333,
+          "other_relevant_information": 0.6786,
+          "rescue_volunteering_or_donation_effort": 0.5766
+        }
+      }
+    },
+    "agree": {
+      "text": {
+        "macro_f1": 0.3131052631578948,
+        "accuracy": 0.575,
+        "critical_recall": 0.0,
+        "ece": 0.15261935889720915,
+        "per_class_f1": {
+          "affected_individuals": 0.0,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.2105,
+          "other_relevant_information": 0.675,
+          "rescue_volunteering_or_donation_effort": 0.68
+        }
+      }
+    },
+    "conflict": {
+      "text": {
+        "macro_f1": 0.26780510018214937,
+        "accuracy": 0.5416666666666666,
+        "critical_recall": 0.09090909090909091,
+        "ece": 0.10606610079606375,
+        "per_class_f1": {
+          "affected_individuals": 0.1667,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.0,
+          "other_relevant_information": 0.6806,
+          "rescue_volunteering_or_donation_effort": 0.4918
+        }
+      }
+    }
+  },
+  "text_swapped": {
+    "all": {
+      "text": {
+        "macro_f1": 0.2844649015288528,
+        "accuracy": 0.485,
+        "critical_recall": 0.11538461538461539,
+        "ece": 0.12504315793514253,
+        "per_class_f1": {
+          "affected_individuals": 0.2069,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.0,
+          "other_relevant_information": 0.5309,
+          "rescue_volunteering_or_donation_effort": 0.6846
+        }
+      }
+    },
+    "agree": {
+      "text": {
+        "macro_f1": 0.18444444444444444,
+        "accuracy": 0.36,
+        "critical_recall": 0.0,
+        "ece": 0.20077319264411925,
+        "per_class_f1": {
+          "affected_individuals": 0.0,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.0,
+          "other_relevant_information": 0.2222,
+          "rescue_volunteering_or_donation_effort": 0.7
+        }
+      }
+    },
+    "conflict": {
+      "text": {
+        "macro_f1": 0.3003229974160207,
+        "accuracy": 0.5028571428571429,
+        "critical_recall": 0.14285714285714285,
+        "ece": 0.12352821656635828,
+        "per_class_f1": {
+          "affected_individuals": 0.25,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.0,
+          "other_relevant_information": 0.5694,
+          "rescue_volunteering_or_donation_effort": 0.6822
+        }
+      }
+    }
+  },
+  "image_swapped": {
+    "all": {
+      "text": {
+        "macro_f1": 0.3012256794609736,
+        "accuracy": 0.555,
+        "critical_recall": 0.0625,
+        "ece": 0.09037314757704737,
+        "per_class_f1": {
+          "affected_individuals": 0.1176,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.1333,
+          "other_relevant_information": 0.6786,
+          "rescue_volunteering_or_donation_effort": 0.5766
+        }
+      }
+    },
+    "agree": {
+      "text": {
+        "macro_f1": 0.2123076923076923,
+        "accuracy": 0.46153846153846156,
+        "critical_recall": 0.0,
+        "ece": 0.22525723278522491,
+        "per_class_f1": {
+          "affected_individuals": 0.0,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.0,
+          "other_relevant_information": 0.4615,
+          "rescue_volunteering_or_donation_effort": 0.6
+        }
+      }
+    },
+    "conflict": {
+      "text": {
+        "macro_f1": 0.311857491167836,
+        "accuracy": 0.5689655172413793,
+        "critical_recall": 0.07692307692307693,
+        "ece": 0.10367918596870597,
+        "per_class_f1": {
+          "affected_individuals": 0.1429,
+          "infrastructure_and_utility_damage": 0.0,
+          "not_humanitarian": 0.1379,
+          "other_relevant_information": 0.7071,
+          "rescue_volunteering_or_donation_effort": 0.5714
+        }
+      }
+    }
+  }
+}

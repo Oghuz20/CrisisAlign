@@ -1,0 +1,24 @@
+# Dataset (about 1.9 GB, downloaded with: hf download QCRI/CrisisMMD --repo-type dataset --local-dir CrisisMMD)
+CrisisMMD/
+data/
+*.tar.gz
+*.zip
+
+# Model checkpoints and large outputs
+checkpoints/
+*.pt
+*.ckpt
+*.safetensors
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# PyCharm
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
