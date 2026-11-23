@@ -1,0 +1,21 @@
+{
+  "model": "multimodal",
+  "modality_dropout": 0.0,
+  "epochs": 8,
+  "batch_size": 32,
+  "lr_text": 2e-05,
+  "lr_image": 0.0001,
+  "lr_head": 0.001,
+  "weight_decay": 0.01,
+  "patience": 3,
+  "seed": 42,
+  "workers": 2,
+  "text_model": "distilbert-base-uncased",
+  "no_pretrained": false,
+  "device": "auto",
+  "quick": false,
+  "resume": false,
+  "n_params": 71095867,
+  "best_val_macro_f1": 0.6835551341430983,
+  "best_epoch": 4
+}
