@@ -43,7 +43,7 @@ class ImageEncoder(nn.Module):
         return self.proj(torch.flatten(self.pool(self.features(image)), 1))
 
 
-def head(in_dim, out_dim, dropout=0.2):
+def head(in_dim, out_dim, dropout=0.3):
     return nn.Sequential(nn.Dropout(dropout), nn.Linear(in_dim, out_dim))
 
 

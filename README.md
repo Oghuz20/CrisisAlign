@@ -26,13 +26,19 @@ hf download QCRI/CrisisMMD --repo-type dataset --local-dir CrisisMMD
 Official humanitarian split (tweet-level): train 13,608 / validation 2,237 / test 2,237 pairs.
 Text and image labels come from `files_individual_events/*.tsv`; 8 categories are merged into 5.
 
+## Versions
+- **v1** (`runs/<run>/`, `report/figures/`): first full run, 8 epochs, no label smoothing, 4 models.
+- **v2** (`runs/v2/`, `report/figures/v2/`): against overfitting (5 epochs, patience 2, label smoothing 0.1,
+  head dropout 0.3) and a fifth model with swap augmentation for the conflict warning.
+  Model choices are made on validation; the test split is evaluated once.
+
 ## Reproduce
 ```bash
 python -m src.reproduce --quick        # ~10-minute check that every step runs (CPU)
-python -m src.reproduce                # all runs (4 models x 3 seeds) on validation, GPU recommended
+python -m src.reproduce                # all v2 runs (5 models x 3 seeds), evaluated on validation; GPU recommended
 python -m src.reproduce --split test   # final test numbers, once
 ```
-Tables: `runs/summary_<split>.md`. Figures: `report/figures/`.
+Tables: `runs/v2/summary_<split>.md`. Figures: `report/figures/v2/`.
 
 ## Code
 | File | Step |

@@ -1,13 +1,13 @@
 """One command that reproduces every headline number.
 
 Run from the project root, after downloading the data (see README):
-    python -m src.reproduce --quick          # ~10-minute check that every step runs (CPU)
-    python -m src.reproduce                  # full experiments on validation (GPU recommended)
-    python -m src.reproduce --split test     # final test numbers (run once, at the end)
+    python -m src.reproduce --quick          # short check that every step runs
+    python -m src.reproduce                  # train all runs, evaluate on validation
+    python -m src.reproduce --split test     # same runs (already trained) evaluated on test: once, at the end
 
 Steps (finished steps are skipped; --force reruns them):
     1. prepare_data
-    2. train text / image / multimodal / multimodal + modality dropout 0.3, seeds 42-44
+    2. train text / image / multimodal / + modality dropout 0.3 / + swap augmentation 0.25, seeds 42-44
     3. evaluate every run under all stress-test conditions
     4. report
 """
@@ -19,7 +19,9 @@ import time
 from src.config import PROCESSED_DIR, ROOT, RUNS_DIR
 from src.report import SEEDS
 
-EXPERIMENTS = [("text", 0.0), ("image", 0.0), ("multimodal", 0.0), ("multimodal", 0.3)]
+# (model, modality dropout, swap augmentation)
+EXPERIMENTS = [("text", 0.0, 0.0), ("image", 0.0, 0.0), ("multimodal", 0.0, 0.0),
+               ("multimodal", 0.3, 0.0), ("multimodal", 0.0, 0.25)]
 
 
 def step(title, module, args=(), done=None, force=False):
@@ -45,16 +47,17 @@ def main():
     q = ["--quick"] if a.quick else []
 
     step("1. Prepare data", "src.prepare_data", done=PROCESSED_DIR / "test.csv", force=a.force)
-    for model, md in EXPERIMENTS:
+    for model, md, sw in EXPERIMENTS:
         for seed in seeds:
-            run = run_name(model, md, seed, a.quick)
+            run = run_name(model, md, seed, a.quick, sw)
             step(f"2. Train {run}", "src.train",
-                 ["--model", model, "--modality-dropout", str(md), "--seed", str(seed), *q, *a.extra],
+                 ["--model", model, "--modality-dropout", str(md), "--swap-aug", str(sw),
+                  "--seed", str(seed), *q, *a.extra],
                  done=RUNS_DIR / run / "config.json", force=a.force)
             step(f"3. Evaluate {run} on {a.split}", "src.evaluate", ["--run", run, "--split", a.split],
                  done=RUNS_DIR / run / f"eval_{a.split}.json", force=a.force)
     step("4. Report", "src.report", ["--split", a.split, *q], force=True)
-    print("\nDone. Tables: runs/summary_*.md | figures: report/figures/")
+    print("\nDone. Tables: runs/v2/summary_*.md | figures: report/figures/v2/")
 
 
 if __name__ == "__main__":

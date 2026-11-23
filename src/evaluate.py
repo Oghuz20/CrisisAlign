@@ -5,7 +5,7 @@ Run from the project root:
     python -m src.evaluate --run multimodal_seed42 --split test    # once, at the end
 
 Conditions: clean, text_missing, image_missing, text_swapped, image_swapped (see data.py).
-Writes runs/<run>/eval_<split>.json and pred_<split>_<condition>.npz.
+Writes runs/v2/<run>/eval_<split>.json and pred_<split>_<condition>.npz.
 """
 import argparse
 import json
@@ -57,7 +57,7 @@ def main():
     args = p.parse_args()
     print(f"Evaluating {args.run} on {args.split}")
     evaluate_run(args.run, args.split, workers=args.workers)
-    print(f"Saved runs/{args.run}/eval_{args.split}.json")
+    print(f"Saved {RUNS_DIR.name}/{args.run}/eval_{args.split}.json")
 
 
 if __name__ == "__main__":

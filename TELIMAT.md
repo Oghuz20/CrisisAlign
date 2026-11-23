@@ -1,7 +1,9 @@
 # GPU-da tam öyrətmə üçün təlimat
 
 Bu təlimat layihənin bütün eksperimentlərini GPU olan kompüterdə işlətmək üçündür:
-4 model (text, image, multimodal, multimodal + modality dropout) × 3 seed = 12 öyrətmə.
+5 model (text, image, multimodal, multimodal + modality dropout, multimodal + swap augmentation) × 3 seed = 15 öyrətmə.
+Bu, **versiya 2**-dir: nəticələr `runs/v2/` və `report/figures/v2/` qovluqlarına yazılır,
+versiya 1-in nəticələri (`runs/` altındakı köhnə qovluqlar) toxunulmaz qalır.
 RTX 5070 Ti (16 GB) kimi kartda təxminən 1.5–2.5 saat çəkir.
 
 ## 1. Kodu götür
@@ -48,15 +50,27 @@ python -m src.reproduce --quick --extra --workers 6
 ```
 
 ## 8. Tam iş (~1.5–2.5 saat)
+Kod artıq klonlanıbsa, əvvəlcə yeniləmələri gətir:
+```
+git pull
+```
+Sonra iki əmr, ARDICIL (birincisi öyrədir və validation-da yoxlayır, ikincisi eyni modelləri test-də yoxlayır):
 ```
 python -m src.reproduce --extra --workers 6
+python -m src.reproduce --split test --extra --workers 6
 ```
+İkinci əmr modelləri yenidən öyrətmir, yalnız test qiymətləndirməsi edir (~10 dəqiqə).
 Yarımçıq kəsilsə, eyni əmri təkrar işlət: bitmiş öyrətmələri atlayır.
 GPU yaddaşı çatmasa (out of memory): `--extra --workers 6 --batch-size 16`.
 Prosessor zəifdirsə və ya kompüter donursa, `--workers 6` əvəzinə `--workers 2` yazın.
 
 ## 9. Nəticələri geri göndər
-GitHub ilə: `runs/` və `report/figures/` qovluqlarını commit edib push et
+GitHub ilə: `runs/v2/` və `report/figures/v2/` qovluqlarını commit edib push et:
+```
+git add runs/v2 report/figures/v2
+git commit -m "Version 2 runs: validation and test results"
+git push
+```
 (`.pt` faylları `.gitignore`-a görə avtomatik çıxarılır).
 Və ya bu iki qovluğu zip edib göndər (`.pt` faylları lazım deyil).
 Xəta çıxsa, xəta mətnini olduğu kimi göndər.

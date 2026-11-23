@@ -6,9 +6,9 @@ Run from the project root:
     python -m src.report --quick         # summarise the *_quick pipeline-check runs
 
 Writes
-    runs/summary_<split>.md / .csv     clean results + stress tests (mean ± std over seeds)
-    report/figures/stress_test_<split>.png
-    report/figures/learning_curves.png
+    runs/v2/summary_<split>.md / .csv  clean results + stress tests (mean ± std over seeds)
+    report/figures/v2/stress_test_<split>.png
+    report/figures/v2/learning_curves.png
 The "pair of unimodal models" warning baseline flags a conflict whenever the
 text-only and image-only models predict different classes.
 """
@@ -18,13 +18,12 @@ import json
 import numpy as np
 import pandas as pd
 
-from src.config import ROOT, RUNS_DIR
+from src.config import EXPERIMENT, FIG_DIR, RUNS_DIR
 from src.data import CONDITIONS
 from src.metrics import agreement_metrics, softmax
 
 SEEDS = (42, 43, 44)
-MODELS = ("text", "image", "multimodal", "multimodal_md0.3")
-FIG_DIR = ROOT / "report" / "figures"
+MODELS = ("text", "image", "multimodal", "multimodal_md0.3", "multimodal_swap0.25")
 
 
 def run_id(model, seed, quick):
@@ -68,21 +67,24 @@ def warning_baselines(split, quick):
     """
     rows = []
     for seed in SEEDS:
-        t = RUNS_DIR / run_id("text", seed, quick) / f"pred_{split}_clean.npz"
-        v = RUNS_DIR / run_id("image", seed, quick) / f"pred_{split}_clean.npz"
-        if not (t.exists() and v.exists()):
-            continue
-        a, b = np.load(t), np.load(v)
-        y = a["y_agree"]
-        always = agreement_metrics(np.ones(len(y)), y)
-        pt, pv = softmax(a["text"]), softmax(b["image"])
-        pair = agreement_metrics(1 - (pt * pv).sum(1), y)
-        pair_hard = agreement_metrics((pt.argmax(1) != pv.argmax(1)).astype(float), y)
-        for name, m, auroc in (("always conflict", always, 0.5),
-                               ("text+image pair", pair_hard, pair.get("conflict_auroc", np.nan))):
-            rows.append({"model": name, "seed": seed, "condition": "clean", "subset": "all",
-                         "output": "warning", "macro_f1": m["conflict_f1"],
-                         "critical_recall": m["conflict_recall"], "ece": np.nan, "auroc": auroc})
+        for cond in CONDITIONS:
+            t = RUNS_DIR / run_id("text", seed, quick) / f"pred_{split}_{cond}.npz"
+            v = RUNS_DIR / run_id("image", seed, quick) / f"pred_{split}_{cond}.npz"
+            if not (t.exists() and v.exists()):
+                continue
+            a, b = np.load(t), np.load(v)
+            y = a["y_agree"]
+            pt, pv = softmax(a["text"]), softmax(b["image"])
+            pair = agreement_metrics(1 - (pt * pv).sum(1), y)
+            pair_hard = agreement_metrics((pt.argmax(1) != pv.argmax(1)).astype(float), y)
+            entries = [("text+image pair", pair_hard, pair.get("conflict_auroc", np.nan))]
+            if cond == "clean":
+                entries.append(("always conflict", agreement_metrics(np.ones(len(y)), y), 0.5))
+            for name, m, auroc in entries:
+                rows.append({"model": name, "seed": seed, "condition": cond, "subset": "all",
+                             "output": "warning", "macro_f1": m["conflict_f1"],
+                             "critical_recall": m["conflict_recall"], "ece": np.nan,
+                             "auroc": auroc})
     return pd.DataFrame(rows)
 
 
@@ -153,7 +155,8 @@ def main():
                                ["critical_recall"].apply(fmt).rename("critical_recall"))
     label_tab = label_tab.join(lab[lab["subset"] == "all"].groupby(["output", "model"])
                                ["ece"].apply(fmt).rename("ECE"))
-    order = ["always conflict", "text+image pair", "multimodal", "multimodal_md0.3"]
+    order = ["always conflict", "text+image pair", "multimodal", "multimodal_md0.3",
+             "multimodal_swap0.25"]
     warn_tab = (warn.groupby("model")[["macro_f1", "critical_recall", "auroc"]]
                 .agg(lambda g: fmt(g.dropna()) if g.notna().any() else "-")
                 .rename(columns={"macro_f1": "conflict_F1", "critical_recall": "conflict_recall",
@@ -164,11 +167,11 @@ def main():
               .groupby(["output", "model", "condition"])["macro_f1"].mean()
               .unstack("condition").reindex(columns=list(CONDITIONS))).round(4)
     w = all_rows[(all_rows["output"] == "warning") & all_rows["auroc"].notna()]
-    stress_warn = (w[w["model"].str.startswith("multimodal")]
+    stress_warn = (w[w["model"] != "always conflict"]
                    .groupby(["model", "condition"])["auroc"].mean()
                    .unstack("condition").reindex(columns=list(CONDITIONS))).round(4)
 
-    text = ["# Results on " + args.split, "",
+    text = [f"# Results on {args.split} (experiment {EXPERIMENT})", "",
             "## Clean input: humanitarian labels (macro-F1 overall and on agree / conflict posts)", "",
             label_tab.to_string(), "",
             "## Clean input: conflict warning", "",
@@ -181,7 +184,7 @@ def main():
     plot_stress(df, FIG_DIR / f"stress_test_{sfx}.png")
     plot_curves(args.quick, FIG_DIR / "learning_curves.png")
     print("\n".join(text[2:]))
-    print(f"\nSaved runs/summary_{sfx}.md/.csv and report/figures/")
+    print(f"\nSaved runs/{EXPERIMENT}/summary_{sfx}.md/.csv and report/figures/{EXPERIMENT}/")
 
 
 if __name__ == "__main__":

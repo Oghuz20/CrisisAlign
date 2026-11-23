@@ -6,7 +6,11 @@ RAW_DIR = ROOT / "CrisisMMD"                     # hf download QCRI/CrisisMMD ..
 EVENTS_DIR = RAW_DIR / "files_individual_events"
 SPLIT_DIR = RAW_DIR / "humanitarian"             # official split: train.json / dev.json / test.json
 PROCESSED_DIR = ROOT / "data" / "processed"
-RUNS_DIR = ROOT / "runs"
+# Version 2 (anti-overfitting settings + swap augmentation). Version 1 results
+# (first full GPU run) stay untouched in runs/ and report/figures/.
+EXPERIMENT = "v2"
+RUNS_DIR = ROOT / "runs" / EXPERIMENT
+FIG_DIR = ROOT / "report" / "figures" / EXPERIMENT
 
 # Official splits (tweet-level, no tweet appears in two splits).
 SPLIT_FILES = {"train": "train.json", "val": "dev.json", "test": "test.json"}

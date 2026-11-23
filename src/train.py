@@ -5,11 +5,18 @@ Run from the project root:
     python -m src.train --model image
     python -m src.train --model multimodal
     python -m src.train --model multimodal --modality-dropout 0.3     # robustness remedy
+    python -m src.train --model multimodal --swap-aug 0.25            # conflict-warning remedy
     python -m src.train --model multimodal --quick                    # pipeline check (CPU, minutes)
     python -m src.train --model multimodal --resume                   # continue an interrupted run
 
 Validation = official dev split. Model selection: mean macro-F1 of the label
 heads on validation; early stopping after --patience epochs without improvement.
+
+Against overfitting (version 2): 5 epochs max, patience 2, label smoothing 0.1,
+head dropout 0.3. Swap augmentation (multimodal only): in a fraction of each
+training batch the caption is exchanged with another post's caption, and the
+targets follow (text label of the new caption; conflict if labels differ). The
+model can then only spot these conflicts by comparing caption and image.
 Writes runs/<run>/: history.csv, learning_curve.png, best.pt, last.pt, config.json
 """
 import argparse
@@ -30,11 +37,13 @@ from src.metrics import evaluate_outputs
 from src.models import build_model, param_groups
 
 AGREE_WEIGHT = 0.5
+LABEL_SMOOTHING = 0.1
 
 
-def run_name(model, modality_dropout, seed, quick):
+def run_name(model, modality_dropout, seed, quick, swap_aug=0.0):
     md = f"_md{modality_dropout:g}" if model == "multimodal" and modality_dropout > 0 else ""
-    return f"{model}{md}_seed{seed}{'_quick' if quick else ''}"
+    sw = f"_swap{swap_aug:g}" if model == "multimodal" and swap_aug > 0 else ""
+    return f"{model}{md}{sw}_seed{seed}{'_quick' if quick else ''}"
 
 
 def set_seed(seed):
@@ -48,12 +57,12 @@ def to_device(b, device):
     return {k: v.to(device, non_blocking=True) if torch.is_tensor(v) else v for k, v in b.items()}
 
 
-def compute_loss(out, b):
+def compute_loss(out, b, smoothing=0.0):
     loss = 0.0
     if "text" in out:
-        loss = loss + F.cross_entropy(out["text"].float(), b["text_label"])
+        loss = loss + F.cross_entropy(out["text"].float(), b["text_label"], label_smoothing=smoothing)
     if "image" in out:
-        loss = loss + F.cross_entropy(out["image"].float(), b["image_label"])
+        loss = loss + F.cross_entropy(out["image"].float(), b["image_label"], label_smoothing=smoothing)
     if "agree" in out:
         loss = loss + AGREE_WEIGHT * F.binary_cross_entropy_with_logits(out["agree"].float(), b["agree"])
     return loss
@@ -76,6 +85,21 @@ def predict(model, loader, device, amp):
     outs = {k: np.concatenate(v) for k, v in outs.items()}
     tgts = {k: np.concatenate(v) for k, v in tgts.items()}
     return outs, tgts, total / n
+
+
+def swap_captions(b, p, generator):
+    """Swap augmentation: give a fraction p of the batch another post's caption."""
+    n = len(b["agree"])
+    chosen = torch.nonzero(torch.rand(n, generator=generator) < p).flatten()
+    if len(chosen) < 2:
+        return b
+    donor = chosen[torch.randperm(len(chosen), generator=generator)]
+    b = dict(b)
+    for k in ("input_ids", "attention_mask", "text_label", "has_text"):
+        b[k] = b[k].clone()
+        b[k][chosen] = b[k][donor]
+    b["agree"] = (b["text_label"] == b["image_label"]).float()
+    return b
 
 
 def selection_score(res):
@@ -119,13 +143,16 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", required=True, choices=["text", "image", "multimodal"])
     p.add_argument("--modality-dropout", type=float, default=0.0)
-    p.add_argument("--epochs", type=int, default=8)
+    p.add_argument("--swap-aug", type=float, default=0.0,
+                   help="fraction of each training batch whose caption is swapped (multimodal)")
+    p.add_argument("--label-smoothing", type=float, default=LABEL_SMOOTHING)
+    p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--lr-text", type=float, default=2e-5)
     p.add_argument("--lr-image", type=float, default=1e-4)
     p.add_argument("--lr-head", type=float, default=1e-3)
     p.add_argument("--weight-decay", type=float, default=0.01)
-    p.add_argument("--patience", type=int, default=3)
+    p.add_argument("--patience", type=int, default=2)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--text-model", default=TEXT_MODEL)
@@ -141,7 +168,8 @@ def main():
     device = torch.device(("cuda" if torch.cuda.is_available() else "cpu")
                           if args.device == "auto" else args.device)
     amp = device.type == "cuda"
-    run_dir = RUNS_DIR / run_name(args.model, args.modality_dropout, args.seed, args.quick)
+    run_dir = RUNS_DIR / run_name(args.model, args.modality_dropout, args.seed, args.quick,
+                                  args.swap_aug)
     run_dir.mkdir(parents=True, exist_ok=True)
 
     tokenizer = AutoTokenizer.from_pretrained(args.text_model)
@@ -176,10 +204,12 @@ def main():
         model.train()
         total, n = 0.0, 0
         for b in train_dl:
+            if args.model == "multimodal" and args.swap_aug > 0:
+                b = swap_captions(b, args.swap_aug, gen)
             b = to_device(b, device)
             with torch.autocast(device.type, dtype=torch.bfloat16, enabled=amp):
                 out = model(b)
-            loss = compute_loss(out, b)
+            loss = compute_loss(out, b, args.label_smoothing)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
