@@ -1,0 +1,23 @@
+{
+  "model": "text",
+  "modality_dropout": 0.0,
+  "swap_aug": 0.0,
+  "label_smoothing": 0.1,
+  "epochs": 5,
+  "batch_size": 32,
+  "lr_text": 2e-05,
+  "lr_image": 0.0001,
+  "lr_head": 0.001,
+  "weight_decay": 0.01,
+  "patience": 2,
+  "seed": 43,
+  "workers": 6,
+  "text_model": "distilbert-base-uncased",
+  "no_pretrained": false,
+  "device": "auto",
+  "quick": false,
+  "resume": false,
+  "n_params": 66366725,
+  "best_val_macro_f1": 0.6942038204490091,
+  "best_epoch": 2
+}
