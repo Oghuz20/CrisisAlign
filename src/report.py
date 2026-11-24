@@ -6,9 +6,9 @@ Run from the project root:
     python -m src.report --quick         # summarise the *_quick pipeline-check runs
 
 Writes
-    runs/v2/summary_<split>.md / .csv  clean results + stress tests (mean ± std over seeds)
-    report/figures/v2/stress_test_<split>.png
-    report/figures/v2/learning_curves.png
+    runs/v3/summary_<split>.md / .csv  clean results + stress tests (mean ± std over seeds)
+    report/figures/v3/stress_test_<split>.png
+    report/figures/v3/learning_curves.png
 The "pair of unimodal models" warning baseline flags a conflict whenever the
 text-only and image-only models predict different classes.
 """

@@ -57,7 +57,7 @@ def main():
             step(f"3. Evaluate {run} on {a.split}", "src.evaluate", ["--run", run, "--split", a.split],
                  done=RUNS_DIR / run / f"eval_{a.split}.json", force=a.force)
     step("4. Report", "src.report", ["--split", a.split, *q], force=True)
-    print("\nDone. Tables: runs/v2/summary_*.md | figures: report/figures/v2/")
+    print("\nDone. Tables: runs/v3/summary_*.md | figures: report/figures/v3/")
 
 
 if __name__ == "__main__":

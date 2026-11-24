@@ -31,14 +31,16 @@ Text and image labels come from `files_individual_events/*.tsv`; 8 categories ar
 - **v2** (`runs/v2/`, `report/figures/v2/`): against overfitting (5 epochs, patience 2, label smoothing 0.1,
   head dropout 0.3) and a fifth model with swap augmentation for the conflict warning.
   Model choices are made on validation; the test split is evaluated once.
+- **v3** (`runs/v3/`, `report/figures/v3/`): v2 + stronger regularisation inside the networks
+  (DistilBERT dropout and attention dropout 0.2, fusion dropout 0.2, weight decay 0.05).
 
 ## Reproduce
 ```bash
 python -m src.reproduce --quick        # ~10-minute check that every step runs (CPU)
-python -m src.reproduce                # all v2 runs (5 models x 3 seeds), evaluated on validation; GPU recommended
+python -m src.reproduce                # all v3 runs (5 models x 3 seeds), evaluated on validation; GPU recommended
 python -m src.reproduce --split test   # final test numbers, once
 ```
-Tables: `runs/v2/summary_<split>.md`. Figures: `report/figures/v2/`.
+Tables: `runs/v3/summary_<split>.md`. Figures: `report/figures/v3/`.
 
 ## Code
 | File | Step |

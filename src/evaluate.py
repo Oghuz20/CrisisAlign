@@ -5,7 +5,7 @@ Run from the project root:
     python -m src.evaluate --run multimodal_seed42 --split test    # once, at the end
 
 Conditions: clean, text_missing, image_missing, text_swapped, image_swapped (see data.py).
-Writes runs/v2/<run>/eval_<split>.json and pred_<split>_<condition>.npz.
+Writes runs/<version>/<run>/eval_<split>.json and pred_<split>_<condition>.npz.
 """
 import argparse
 import json

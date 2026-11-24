@@ -12,8 +12,8 @@ Run from the project root:
 Validation = official dev split. Model selection: mean macro-F1 of the label
 heads on validation; early stopping after --patience epochs without improvement.
 
-Against overfitting (version 2): 5 epochs max, patience 2, label smoothing 0.1,
-head dropout 0.3. Swap augmentation (multimodal only): in a fraction of each
+Against overfitting: 5 epochs max, patience 2, label smoothing 0.1, head dropout 0.3
+(v2); encoder dropout 0.2, fusion dropout 0.2, weight decay 0.05 (v3). Swap augmentation (multimodal only): in a fraction of each
 training batch the caption is exchanged with another post's caption, and the
 targets follow (text label of the new caption; conflict if labels differ). The
 model can then only spot these conflicts by comparing caption and image.
@@ -151,7 +151,7 @@ def main():
     p.add_argument("--lr-text", type=float, default=2e-5)
     p.add_argument("--lr-image", type=float, default=1e-4)
     p.add_argument("--lr-head", type=float, default=1e-3)
-    p.add_argument("--weight-decay", type=float, default=0.01)
+    p.add_argument("--weight-decay", type=float, default=0.05)
     p.add_argument("--patience", type=int, default=2)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--workers", type=int, default=2)

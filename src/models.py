@@ -13,17 +13,23 @@ zeroed and replaced by a learned "missing" vector, so the model knows it is abse
 import torch
 import torch.nn as nn
 from torchvision.models import MobileNet_V3_Large_Weights, mobilenet_v3_large
-from transformers import AutoModel
+from transformers import AutoConfig, AutoModel
 
-from src.config import CLASSES
+from src.config import CLASSES, ENCODER_DROPOUT, FUSION_DROPOUT
 
 N_CLASSES = len(CLASSES)
 
 
 class TextEncoder(nn.Module):
-    def __init__(self, name):
+    def __init__(self, name, dropout=ENCODER_DROPOUT):
         super().__init__()
-        self.bert = AutoModel.from_pretrained(name)
+        cfg = AutoConfig.from_pretrained(name)
+        # Stronger internal dropout (v3). Names differ between model families.
+        for key in ("dropout", "attention_dropout",                       # DistilBERT
+                    "hidden_dropout_prob", "attention_probs_dropout_prob"):  # BERT-style
+            if hasattr(cfg, key):
+                setattr(cfg, key, dropout)
+        self.bert = AutoModel.from_pretrained(name, config=cfg)
         self.dim = self.bert.config.hidden_size if hasattr(self.bert.config, "hidden_size") \
             else self.bert.config.dim
 
@@ -32,11 +38,11 @@ class TextEncoder(nn.Module):
 
 
 class ImageEncoder(nn.Module):
-    def __init__(self, pretrained=True):
+    def __init__(self, pretrained=True, dropout=FUSION_DROPOUT):
         super().__init__()
         net = mobilenet_v3_large(weights=MobileNet_V3_Large_Weights.IMAGENET1K_V2 if pretrained else None)
         self.features, self.pool = net.features, net.avgpool
-        self.proj = net.classifier[:2]              # Linear(960 -> 1280) + Hardswish
+        self.proj = nn.Sequential(*net.classifier[:2], nn.Dropout(dropout))  # 960 -> 1280, Hardswish
         self.dim = 1280
 
     def forward(self, image):
@@ -71,8 +77,10 @@ class LateFusion(nn.Module):
     def __init__(self, text_model, pretrained=True, proj_dim=256, modality_dropout=0.0):
         super().__init__()
         self.text_enc, self.image_enc = TextEncoder(text_model), ImageEncoder(pretrained)
-        self.text_proj = nn.Sequential(nn.Linear(self.text_enc.dim, proj_dim), nn.GELU())
-        self.image_proj = nn.Sequential(nn.Linear(self.image_enc.dim, proj_dim), nn.GELU())
+        self.text_proj = nn.Sequential(nn.Linear(self.text_enc.dim, proj_dim), nn.GELU(),
+                                       nn.Dropout(FUSION_DROPOUT))
+        self.image_proj = nn.Sequential(nn.Linear(self.image_enc.dim, proj_dim), nn.GELU(),
+                                        nn.Dropout(FUSION_DROPOUT))
         self.missing_text = nn.Parameter(torch.zeros(proj_dim))
         self.missing_image = nn.Parameter(torch.zeros(proj_dim))
         self.p = modality_dropout

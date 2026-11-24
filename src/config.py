@@ -6,9 +6,15 @@ RAW_DIR = ROOT / "CrisisMMD"                     # hf download QCRI/CrisisMMD ..
 EVENTS_DIR = RAW_DIR / "files_individual_events"
 SPLIT_DIR = RAW_DIR / "humanitarian"             # official split: train.json / dev.json / test.json
 PROCESSED_DIR = ROOT / "data" / "processed"
-# Version 2 (anti-overfitting settings + swap augmentation). Version 1 results
-# (first full GPU run) stay untouched in runs/ and report/figures/.
-EXPERIMENT = "v2"
+# v1: first full GPU run            -> runs/<run>/,    report/figures/
+# v2: 5 epochs, patience 2, label smoothing 0.1, head dropout 0.3, + swap augmentation
+#                                    -> runs/v2/,       report/figures/v2/
+# v3: v2 + stronger regularisation inside the networks (encoder dropout 0.2,
+#     fusion dropout 0.2, weight decay 0.05)
+#                                    -> runs/v3/,       report/figures/v3/
+EXPERIMENT = "v3"
+ENCODER_DROPOUT = 0.2     # DistilBERT dropout and attention dropout (default 0.1)
+FUSION_DROPOUT = 0.2      # dropout after each modality projection and before the image head
 RUNS_DIR = ROOT / "runs" / EXPERIMENT
 FIG_DIR = ROOT / "report" / "figures" / EXPERIMENT
 

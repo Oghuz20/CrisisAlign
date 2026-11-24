@@ -2,8 +2,8 @@
 
 Bu təlimat layihənin bütün eksperimentlərini GPU olan kompüterdə işlətmək üçündür:
 5 model (text, image, multimodal, multimodal + modality dropout, multimodal + swap augmentation) × 3 seed = 15 öyrətmə.
-Bu, **versiya 2**-dir: nəticələr `runs/v2/` və `report/figures/v2/` qovluqlarına yazılır,
-versiya 1-in nəticələri (`runs/` altındakı köhnə qovluqlar) toxunulmaz qalır.
+Bu, **versiya 3**-dür (v2 + şəbəkələrin daxilində daha güclü regularizasiya): nəticələr `runs/v3/` və
+`report/figures/v3/` qovluqlarına yazılır, versiya 1 və 2-nin nəticələri toxunulmaz qalır.
 RTX 5070 Ti (16 GB) kimi kartda təxminən 1.5–2.5 saat çəkir.
 
 ## 1. Kodu götür
@@ -65,10 +65,10 @@ GPU yaddaşı çatmasa (out of memory): `--extra --workers 6 --batch-size 16`.
 Prosessor zəifdirsə və ya kompüter donursa, `--workers 6` əvəzinə `--workers 2` yazın.
 
 ## 9. Nəticələri geri göndər
-GitHub ilə: `runs/v2/` və `report/figures/v2/` qovluqlarını commit edib push et:
+GitHub ilə: `runs/v3/` və `report/figures/v3/` qovluqlarını commit edib push et:
 ```
-git add runs/v2 report/figures/v2
-git commit -m "Version 2 runs: validation and test results"
+git add runs/v3 report/figures/v3
+git commit -m "Version 3 runs: validation and test results"
 git push
 ```
 (`.pt` faylları `.gitignore`-a görə avtomatik çıxarılır).
