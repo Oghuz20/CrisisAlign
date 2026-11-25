@@ -1,28 +1,10 @@
-"""Step 2: train one model.
-
-Run from the project root:
-    python -m src.train --model text
-    python -m src.train --model image
-    python -m src.train --model multimodal
-    python -m src.train --model multimodal --modality-dropout 0.3     # robustness remedy
-    python -m src.train --model multimodal --swap-aug 0.25            # conflict-warning remedy
-    python -m src.train --model multimodal --quick                    # pipeline check (CPU, minutes)
-    python -m src.train --model multimodal --resume                   # continue an interrupted run
-
-Validation = official dev split. Model selection: mean macro-F1 of the label
-heads on validation; early stopping after --patience epochs without improvement.
-
-Against overfitting: 5 epochs max, patience 2, label smoothing 0.1, head dropout 0.3
-(v2); encoder dropout 0.2, fusion dropout 0.2, weight decay 0.05 (v3). Swap augmentation (multimodal only): in a fraction of each
-training batch the caption is exchanged with another post's caption, and the
-targets follow (text label of the new caption; conflict if labels differ). The
-model can then only spot these conflicts by comparing caption and image.
-Writes runs/<run>/: history.csv, learning_curve.png, best.pt, last.pt, config.json
-"""
-import argparse
-import json
+"""Train and select checkpoints on the official validation split."""
+import platform
 import random
+import subprocess
 import time
+from importlib.metadata import version
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -31,19 +13,16 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, get_linear_schedule_with_warmup
 
-from src.config import MAX_TEXT_LEN, RUNS_DIR, TEXT_MODEL
+from src.artifacts import (checkpoint_record, dataset_metadata, identity, objectives,
+                           read_json, run_directory, sha256, should_stop, training_config,
+                           update_selection, validate_checkpoint, write_json)
+from src.config import MAX_TEXT_LEN, ROOT
 from src.data import Collator, CrisisDataset, load_split
 from src.metrics import evaluate_outputs
 from src.models import build_model, param_groups
+from src.precision import autocast_dtype, optimizer_step
 
 AGREE_WEIGHT = 0.5
-LABEL_SMOOTHING = 0.1
-
-
-def run_name(model, modality_dropout, seed, quick, swap_aug=0.0):
-    md = f"_md{modality_dropout:g}" if model == "multimodal" and modality_dropout > 0 else ""
-    sw = f"_swap{swap_aug:g}" if model == "multimodal" and swap_aug > 0 else ""
-    return f"{model}{md}{sw}_seed{seed}{'_quick' if quick else ''}"
 
 
 def set_seed(seed):
@@ -69,12 +48,12 @@ def compute_loss(out, b, smoothing=0.0):
 
 
 @torch.no_grad()
-def predict(model, loader, device, amp):
+def predict(model, loader, device, dtype):
     model.eval()
     outs, tgts, total, n = {}, {}, 0.0, 0
     for b in loader:
         b = to_device(b, device)
-        with torch.autocast(device.type, dtype=torch.bfloat16, enabled=amp):
+        with torch.autocast(device.type, dtype=dtype, enabled=dtype is not None):
             out = model(b)
         total += compute_loss(out, b).item() * len(b["agree"])
         n += len(b["agree"])
@@ -139,38 +118,61 @@ def plot_curve(hist, path):
     plt.close(fig)
 
 
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--model", required=True, choices=["text", "image", "multimodal"])
-    p.add_argument("--modality-dropout", type=float, default=0.0)
-    p.add_argument("--swap-aug", type=float, default=0.0,
-                   help="fraction of each training batch whose caption is swapped (multimodal)")
-    p.add_argument("--label-smoothing", type=float, default=LABEL_SMOOTHING)
-    p.add_argument("--epochs", type=int, default=5)
-    p.add_argument("--batch-size", type=int, default=32)
-    p.add_argument("--lr-text", type=float, default=2e-5)
-    p.add_argument("--lr-image", type=float, default=1e-4)
-    p.add_argument("--lr-head", type=float, default=1e-3)
-    p.add_argument("--weight-decay", type=float, default=0.05)
-    p.add_argument("--patience", type=int, default=2)
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--workers", type=int, default=2)
-    p.add_argument("--text-model", default=TEXT_MODEL)
-    p.add_argument("--no-pretrained", action="store_true", help="random image weights (debug only)")
-    p.add_argument("--device", default="auto")
-    p.add_argument("--quick", action="store_true", help="small subset, 2 epochs: pipeline check")
-    p.add_argument("--resume", action="store_true")
-    args = p.parse_args()
-    if args.quick:
-        args.epochs = min(args.epochs, 2)
+def save_checkpoint(value, path):
+    temp = path.with_suffix(".pt.tmp")
+    torch.save(value, temp)
+    temp.replace(path)
 
+
+def provenance(device, dtype):
+    def git(*args):
+        result = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    try:
+        commit = git("rev-parse", "HEAD")
+        changed = git("status", "--porcelain", "--", "src")
+    except FileNotFoundError:
+        commit, changed = None, None
+    return {
+        "git_commit": commit, "source_dirty": bool(changed) if changed is not None else None,
+        "source_sha256": {p.name: sha256(p) for p in sorted((ROOT / "src").glob("*.py"))},
+        "python": platform.python_version(), "platform": platform.platform(),
+        "packages": {name: version(name) for name in
+                     ("torch", "torchvision", "transformers", "numpy", "pandas", "scikit-learn")},
+        "device": str(device), "cuda": torch.version.cuda,
+        "autocast_dtype": str(dtype) if dtype is not None else None,
+        "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
+    }
+
+
+def main():
+    config, resume = training_config()
+    args = SimpleNamespace(**config)
+    run_dir = run_directory(config)
+    if (run_dir / "config.json").exists():
+        raise SystemExit(f"Completed or damaged run at {run_dir}. Preserve it and use a new --tag.")
+    if not resume and run_dir.exists():
+        raise SystemExit(f"Run directory already exists: {run_dir}. Use --resume or a new --tag.")
+
+    dataset = {split: dataset_metadata(split) for split in ("train", "val")}
     set_seed(args.seed)
     device = torch.device(("cuda" if torch.cuda.is_available() else "cpu")
                           if args.device == "auto" else args.device)
-    amp = device.type == "cuda"
-    run_dir = RUNS_DIR / run_name(args.model, args.modality_dropout, args.seed, args.quick,
-                                  args.swap_aug)
-    run_dir.mkdir(parents=True, exist_ok=True)
+    dtype = autocast_dtype(device)
+    scaler = torch.amp.GradScaler("cuda") if dtype == torch.float16 else None
+    origin = provenance(device, dtype)
+    if not resume:
+        run_dir.mkdir(parents=True)
+        write_json(run_dir / "started.json", {"training_config": config, "dataset": dataset,
+                                             "provenance": origin})
+    else:
+        started = read_json(run_dir / "started.json")
+        if (started["training_config"] != config or started["dataset"] != dataset or
+                started["provenance"] != origin):
+            raise SystemExit(f"Cannot resume with changed configuration, data or environment: {run_dir}")
+        if not (run_dir / "last.pt").is_file():
+            raise SystemExit(f"No resumable checkpoint in {run_dir}. Use a new --tag.")
 
     tokenizer = AutoTokenizer.from_pretrained(args.text_model)
     train_df = load_split("train", args.quick, args.seed)
@@ -180,26 +182,41 @@ def main():
     val_dl = make_loader(val_df, args.model, tokenizer, args.batch_size * 2, False, args.workers)
 
     model = build_model(args.model, args.text_model, not args.no_pretrained,
-                        args.modality_dropout).to(device)
+                        args.modality_dropout, args.encoder_dropout, args.fusion_dropout).to(device)
     n_params = sum(q.numel() for q in model.parameters())
     opt = torch.optim.AdamW(param_groups(model, args.lr_text, args.lr_image, args.lr_head,
                                          args.weight_decay))
     steps = args.epochs * len(train_dl)
     sched = get_linear_schedule_with_warmup(opt, int(0.06 * steps), steps)
-    print(f"{run_dir.name}: {n_params / 1e6:.1f} M params | device {device} | "
+    print(f"{run_dir.name}: {n_params / 1e6:.1f} M params | device {device} | precision {dtype or 'FP32'} | "
           f"train {len(train_df)} | val {len(val_df)}")
 
-    hist, start, best, bad = [], 1, -1.0, 0
-    if args.resume and (run_dir / "last.pt").exists():
+    hist, start = [], 1
+    selected = dict.fromkeys(objectives(config))
+    if resume:
         ck = torch.load(run_dir / "last.pt", map_location=device, weights_only=False)
+        if ck["config_sha256"] != identity(config):
+            raise SystemExit(f"Resume checkpoint configuration mismatch: {run_dir}")
         model.load_state_dict(ck["model"])
         opt.load_state_dict(ck["opt"])
         sched.load_state_dict(ck["sched"])
-        hist, best, bad, start = ck["hist"], ck["best"], ck["bad"], ck["epoch"] + 1
-        torch.set_rng_state(ck["rng"])
+        if scaler is not None:
+            scaler.load_state_dict(ck["scaler"])
+        hist, selected, start = ck["hist"], ck["selected"], ck["epoch"] + 1
+        for record in selected.values():
+            if record is not None:
+                validate_checkpoint(run_dir, record)
+        torch.set_rng_state(ck["rng"].cpu())
+        gen.set_state(ck["generator"].cpu())
+        random.setstate(ck["python_rng"])
+        np.random.set_state(ck["numpy_rng"])
+        if device.type == "cuda":
+            torch.cuda.set_rng_state_all([state.cpu() for state in ck["cuda_rng"]])
         print(f"Resumed after epoch {ck['epoch']}")
 
     for epoch in range(start, args.epochs + 1):
+        if should_stop(epoch - 1, selected, args.patience):
+            break
         t0 = time.time()
         model.train()
         total, n = 0.0, 0
@@ -207,47 +224,74 @@ def main():
             if args.model == "multimodal" and args.swap_aug > 0:
                 b = swap_captions(b, args.swap_aug, gen)
             b = to_device(b, device)
-            with torch.autocast(device.type, dtype=torch.bfloat16, enabled=amp):
+            with torch.autocast(device.type, dtype=dtype, enabled=dtype is not None):
                 out = model(b)
             loss = compute_loss(out, b, args.label_smoothing)
-            opt.zero_grad(set_to_none=True)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            opt.step()
-            sched.step()
+            optimizer_step(loss, opt, sched, model.parameters(), scaler)
             total += loss.item() * len(b["agree"])
             n += len(b["agree"])
-        outs, tgts, val_loss = predict(model, val_dl, device, amp)
+        outs, tgts, val_loss = predict(model, val_dl, device, dtype)
         res = evaluate_outputs(outs, tgts)
         score = selection_score(res)
-        improved = score > best + 1e-4
-        if improved:
-            best, bad = score, 0
-            torch.save(model.state_dict(), run_dir / "best.pt")
-        else:
-            bad += 1
-        row = {"epoch": epoch, "train_loss": total / n, "val_loss": val_loss, "val_macro_f1": score,
-               "seconds": round(time.time() - t0)}
-        if "warning" in res["all"]:
-            row["val_conflict_f1"] = res["all"]["warning"]["conflict_f1"]
+        warning = res["all"].get("warning", {})
+        candidates = {"classification": ("macro_f1", score, 1e-4),
+                      "warning": ("conflict_ap", warning.get("conflict_ap"), 0.0)}
+        row = {"epoch": epoch, "train_loss": total / n, "val_loss": val_loss,
+               "val_macro_f1": score, "seconds": round(time.time() - t0)}
+        for head in ("text", "image"):
+            row[f"val_{head}_macro_f1"] = res["all"].get(head, {}).get("macro_f1")
+        for metric in ("f1", "precision", "recall", "ap", "auroc"):
+            row[f"val_conflict_{metric}"] = warning.get(f"conflict_{metric}")
+
+        for objective, previous in selected.items():
+            metric, value, delta = candidates[objective]
+            winner = update_selection(previous, epoch, value, delta)
+            improved = winner is not previous
+            if improved:
+                path = run_dir / f"best_{objective}_epoch{epoch}.pt"
+                save_checkpoint(model.state_dict(), path)
+                selected[objective] = checkpoint_record(path, epoch, metric, value)
+            record = selected[objective]
+            row[f"{objective}_improved"] = improved
+            row[f"{objective}_checkpoint_epoch"] = record["epoch"] if record else None
+            row[f"{objective}_checkpoint_file"] = record["file"] if record else None
         hist.append(row)
         print(f"epoch {epoch} | train loss {row['train_loss']:.4f} | val loss {val_loss:.4f} | "
-              f"val macro-F1 {score:.4f}" + (f" | conflict-F1 {row['val_conflict_f1']:.4f}"
-                                             if "val_conflict_f1" in row else "")
-              + f" | {row['seconds']} s" + ("  *best" if improved else ""))
-        pd.DataFrame(hist).to_csv(run_dir / "history.csv", index=False)
-        torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "sched": sched.state_dict(),
-                    "hist": hist, "best": best, "bad": bad, "epoch": epoch,
-                    "rng": torch.get_rng_state()}, run_dir / "last.pt")
-        if bad >= args.patience:
-            print(f"Early stopping: no improvement for {args.patience} epochs")
-            break
+              f"val macro-F1 {score:.4f} | warning AP {warning.get('conflict_ap')}")
+        save_checkpoint({
+            "model": model.state_dict(), "opt": opt.state_dict(), "sched": sched.state_dict(),
+            "hist": hist, "selected": selected, "epoch": epoch, "config_sha256": identity(config),
+            "rng": torch.get_rng_state(), "generator": gen.get_state(),
+            "python_rng": random.getstate(), "numpy_rng": np.random.get_state(),
+            "cuda_rng": torch.cuda.get_rng_state_all() if device.type == "cuda" else [],
+            "scaler": scaler.state_dict() if scaler is not None else None,
+        }, run_dir / "last.pt")
 
-    plot_curve(pd.DataFrame(hist), run_dir / "learning_curve.png")
-    cfg = {**vars(args), "n_params": n_params, "best_val_macro_f1": best,
-           "best_epoch": int(pd.DataFrame(hist).loc[pd.DataFrame(hist)["val_macro_f1"].idxmax(), "epoch"])}
-    (run_dir / "config.json").write_text(json.dumps(cfg, indent=2))
-    print(f"Best validation macro-F1 {best:.4f} | saved {run_dir.relative_to(RUNS_DIR.parent)}")
+    history = pd.DataFrame(hist)
+    history_path = run_dir / "history.csv"
+    history.to_csv(history_path, index=False)
+    plot_curve(history, run_dir / "learning_curve.png")
+    if selected["classification"] is None:
+        raise SystemExit("No finite validation classification score. No completed run was written.")
+    manifest = {
+        **config, "training_config": config, "config_sha256": identity(config),
+        "n_params": n_params, "dataset": dataset, "provenance": origin,
+        "history_sha256": sha256(history_path),
+        "pretrained": {
+            "text_revision": getattr(model.text_enc.bert.config, "_commit_hash", None)
+            if hasattr(model, "text_enc") else None,
+            "image_weights": "MobileNet_V3_Large_Weights.IMAGENET1K_V2"
+            if hasattr(model, "image_enc") and not args.no_pretrained else None,
+        },
+        "best_epoch": selected["classification"]["epoch"],
+        "best_val_macro_f1": selected["classification"]["score"],
+        "warning_status": ("selected" if selected.get("warning") else
+                           "undefined_on_clean_validation" if "warning" in selected else "not_applicable"),
+        "checkpoints": {**selected, "last": checkpoint_record(
+            run_dir / "last.pt", hist[-1]["epoch"], None, None)},
+    }
+    write_json(run_dir / "config.json", manifest)
+    print(f"Saved {run_dir}")
 
 
 if __name__ == "__main__":

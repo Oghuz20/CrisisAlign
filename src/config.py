@@ -10,13 +10,10 @@ PROCESSED_DIR = ROOT / "data" / "processed"
 # v2: 5 epochs, patience 2, label smoothing 0.1, head dropout 0.3, + swap augmentation
 #                                    -> runs/v2/,       report/figures/v2/
 # v3: v2 + stronger regularisation inside the networks (encoder dropout 0.2,
-#     fusion dropout 0.2, weight decay 0.05)
-#                                    -> runs/v3/,       report/figures/v3/
+#     fusion dropout 0.2, weight decay 0.05). New runs use runs/disagreement/<recipe>/.
 EXPERIMENT = "v3"
 ENCODER_DROPOUT = 0.2     # DistilBERT dropout and attention dropout (default 0.1)
 FUSION_DROPOUT = 0.2      # dropout after each modality projection and before the image head
-RUNS_DIR = ROOT / "runs" / EXPERIMENT
-FIG_DIR = ROOT / "report" / "figures" / EXPERIMENT
 
 # Official splits (tweet-level, no tweet appears in two splits).
 SPLIT_FILES = {"train": "train.json", "val": "dev.json", "test": "test.json"}

@@ -1,6 +1,6 @@
 """Metrics for the three outputs."""
 import numpy as np
-from sklearn.metrics import f1_score, recall_score, roc_auc_score
+from sklearn.metrics import average_precision_score, f1_score, precision_score, recall_score, roc_auc_score
 
 from src.config import CLASSES, CRITICAL_CLASS
 
@@ -40,13 +40,16 @@ def class_metrics(logits, y):
 
 
 def agreement_metrics(conflict_score, agree):
-    """conflict_score: higher = more likely that caption and image disagree."""
+    """Higher scores indicate unequal humanitarian labels."""
     conflict = 1 - agree.astype(int)
     pred = (conflict_score > 0.5).astype(int)
     out = {"conflict_f1": float(f1_score(conflict, pred, zero_division=0)),
-           "conflict_recall": float(recall_score(conflict, pred, zero_division=0))}
+           "conflict_precision": float(precision_score(conflict, pred, zero_division=0)),
+           "conflict_recall": float(recall_score(conflict, pred, zero_division=0)),
+           "conflict_ap": None}
     if 0 < conflict.sum() < len(conflict):
         out["conflict_auroc"] = float(roc_auc_score(conflict, conflict_score))
+        out["conflict_ap"] = float(average_precision_score(conflict, conflict_score))
     return out
 
 

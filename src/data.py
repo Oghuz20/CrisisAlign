@@ -5,7 +5,7 @@ Conditions (applied at evaluation time; "clean" is the normal input):
     text_missing   no caption            (has_text = 0)
     image_missing  no image              (has_image = 0)
     text_swapped   caption taken from another post with a DIFFERENT text label
-                   (a misleading caption; targets follow the new caption)
+                   (synthetic pairing; targets follow the new caption)
     image_swapped  image taken from another post with a DIFFERENT image label
 """
 import numpy as np
@@ -15,9 +15,9 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from src.artifacts import CONDITIONS
 from src.config import CLASSES, IMAGE_SIZE, PROCESSED_DIR, RAW_DIR
 
-CONDITIONS = ("clean", "text_missing", "image_missing", "text_swapped", "image_swapped")
 LABEL_ID = {c: i for i, c in enumerate(CLASSES)}
 MEAN, STD = (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
 

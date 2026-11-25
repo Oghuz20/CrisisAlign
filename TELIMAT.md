@@ -1,10 +1,8 @@
 # GPU-da tam öyrətmə üçün təlimat
 
-Bu təlimat layihənin bütün eksperimentlərini GPU olan kompüterdə işlətmək üçündür:
-5 model (text, image, multimodal, multimodal + modality dropout, multimodal + swap augmentation) × 3 seed = 15 öyrətmə.
-Bu, **versiya 3**-dür (v2 + şəbəkələrin daxilində daha güclü regularizasiya): nəticələr `runs/v3/` və
-`report/figures/v3/` qovluqlarına yazılır, versiya 1 və 2-nin nəticələri toxunulmaz qalır.
-RTX 5070 Ti (16 GB) kimi kartda təxminən 1.5–2.5 saat çəkir.
+Bu təlimat v2 resepti ilə 6 təlim üçündür: sadə multimodal model və
+`--swap-aug 0.25`, hər biri 42, 43 və 44 seed-ləri ilə.
+Yeni nəticələr `runs/disagreement/v2/` və `report/generated/` qovluqlarına yazılır.
 
 ## 1. Kodu götür
 GitHub-dan:
@@ -44,33 +42,31 @@ python -c "import torch; print(torch.cuda.is_available())"
 hf download QCRI/CrisisMMD --repo-type dataset --local-dir CrisisMMD
 ```
 
-## 7. Əvvəl qısa yoxlama (~10 dəqiqə)
+## 7. İstəyə bağlı qısa yoxlama və əsas təlim
+
 ```
-python -m src.reproduce --quick --extra --workers 6
+python -m src.reproduce --recipe v2 --matrix fusion --quick --tag smoke --workers 6
+python -m src.reproduce --recipe v2 --matrix fusion --seeds 42 43 44 --tag track2 --workers 6
 ```
 
-## 8. Tam iş (~1.5–2.5 saat)
-Kod artıq klonlanıbsa, əvvəlcə yeniləmələri gətir:
+İkinci əmr hər seed üçün təsnifat makro-F1 və humanitar etiket uyğunsuzluğu AP
+göstəricilərinə görə ayrı checkpoint seçir. Təlim yarımçıq qalıbsa, eyni əmrə
+`--resume` əlavə et. Eyni eksperimentdə worker sayı və başqa parametrlər sabit qalsın.
+
+## 8. Yekun test
+
+Validation nəticələrinə əsasən müqayisə qaydasını təsdiqlədikdən sonra:
+
 ```
-git pull
+python -m src.prepare_data --splits test
+python -m src.reproduce --recipe v2 --matrix fusion --seeds 42 43 44 --tag track2 --workers 6 --split test
 ```
-Sonra iki əmr, ARDICIL (birincisi öyrədir və validation-da yoxlayır, ikincisi eyni modelləri test-də yoxlayır):
-```
-python -m src.reproduce --extra --workers 6
-python -m src.reproduce --split test --extra --workers 6
-```
-İkinci əmr modelləri yenidən öyrətmir, yalnız test qiymətləndirməsi edir (~10 dəqiqə).
-Yarımçıq kəsilsə, eyni əmri təkrar işlət: bitmiş öyrətmələri atlayır.
-GPU yaddaşı çatmasa (out of memory): `--extra --workers 6 --batch-size 16`.
-Prosessor zəifdirsə və ya kompüter donursa, `--workers 6` əvəzinə `--workers 2` yazın.
+
+Test əmri yalnız hazırlanmış checkpoint-ləri qiymətləndirir. Çatışmayan
+checkpoint olduqda xəta verir.
 
 ## 9. Nəticələri geri göndər
-GitHub ilə: `runs/v3/` və `report/figures/v3/` qovluqlarını commit edib push et:
-```
-git add runs/v3 report/figures/v3
-git commit -m "Version 3 runs: validation and test results"
-git push
-```
-(`.pt` faylları `.gitignore`-a görə avtomatik çıxarılır).
-Və ya bu iki qovluğu zip edib göndər (`.pt` faylları lazım deyil).
-Xəta çıxsa, xəta mətnini olduğu kimi göndər.
+
+`runs/disagreement/v2/` və `report/generated/` qovluqlarındakı nəticə fayllarını
+paylaş. `.pt` fayllarını GPU kompüterində və ya ortaq yaddaşda saxla.
+`config.json` faylında hər checkpoint-in epoch və SHA-256 məlumatı var.

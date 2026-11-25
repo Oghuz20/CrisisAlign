@@ -1,63 +1,90 @@
-"""One command that reproduces every headline number.
-
-Run from the project root, after downloading the data (see README):
-    python -m src.reproduce --quick          # short check that every step runs
-    python -m src.reproduce                  # train all runs, evaluate on validation
-    python -m src.reproduce --split test     # same runs (already trained) evaluated on test: once, at the end
-
-Steps (finished steps are skipped; --force reruns them):
-    1. prepare_data
-    2. train text / image / multimodal / + modality dropout 0.3 / + swap augmentation 0.25, seeds 42-44
-    3. evaluate every run under all stress-test conditions
-    4. report
-"""
+"""Train/evaluate an explicit experiment matrix, or evaluate it on test."""
 import argparse
 import subprocess
 import sys
-import time
 
-from src.config import PROCESSED_DIR, ROOT, RUNS_DIR
-from src.report import SEEDS
+from src.artifacts import (SEEDS, dataset_metadata, evaluation_complete, evaluation_directory,
+                           run_directory, training_config, validate_training)
+from src.config import EXPERIMENT, ROOT
 
-# (model, modality dropout, swap augmentation)
-EXPERIMENTS = [("text", 0.0, 0.0), ("image", 0.0, 0.0), ("multimodal", 0.0, 0.0),
-               ("multimodal", 0.3, 0.0), ("multimodal", 0.0, 0.25)]
-
-
-def step(title, module, args=(), done=None, force=False):
-    if done is not None and done.exists() and not force:
-        print(f"[skip] {title}")
-        return
-    print(f"\n=== {title} ===", flush=True)
-    t0 = time.time()
-    subprocess.run([sys.executable, "-m", module, *args], cwd=ROOT, check=True)
-    print(f"--- {title}: {time.time() - t0:.0f} s")
+FUSION = [("multimodal", 0.0, 0.0), ("multimodal", 0.0, 0.25)]
+EXPERIMENTS = [("text", 0.0, 0.0), ("image", 0.0, 0.0),
+               *FUSION, ("multimodal", 0.3, 0.0)]
 
 
-def main():
-    p = argparse.ArgumentParser()
+def step(module, args):
+    subprocess.run([sys.executable, "-m", module, *map(str, args)], cwd=ROOT, check=True)
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--recipe", choices=["v2", "v3"], default=EXPERIMENT)
+    p.add_argument("--matrix", choices=["full", "fusion"], default="full")
+    p.add_argument("--seeds", type=int, nargs="+")
+    p.add_argument("--tag", default="main")
+    p.add_argument("--workers", type=int)
     p.add_argument("--split", default="val", choices=["val", "test"])
     p.add_argument("--quick", action="store_true")
-    p.add_argument("--force", action="store_true")
+    p.add_argument("--resume", action="store_true", help="resume incomplete training runs")
     p.add_argument("--extra", nargs=argparse.REMAINDER, default=[],
-                   help="extra arguments passed to src.train (e.g. --extra --workers 0)")
-    a = p.parse_args()
-    from src.train import run_name
-    seeds = SEEDS[:1] if a.quick else SEEDS
-    q = ["--quick"] if a.quick else []
-
-    step("1. Prepare data", "src.prepare_data", done=PROCESSED_DIR / "test.csv", force=a.force)
-    for model, md, sw in EXPERIMENTS:
+                   help="training overrides, e.g. --extra --batch-size 16")
+    a = p.parse_args(argv)
+    reserved = {"--model", "--modality-dropout", "--swap-aug", "--seed", "--recipe", "--tag", "--quick"}
+    if any(arg.split("=")[0] in reserved for arg in a.extra):
+        p.error("Use the matrix and launcher options to set model, recipe, seed, tag or quick mode")
+    if a.split == "test" and (a.quick or a.resume or "--quick" in a.extra or "--resume" in a.extra):
+        p.error("Final test requires completed full runs")
+    seeds = a.seeds or (SEEDS[:1] if a.quick else SEEDS)
+    experiments = FUSION if a.matrix == "fusion" else EXPERIMENTS
+    extra = [part for part in a.extra if part != "--resume"]
+    workers = ["--workers", str(a.workers)] if a.workers is not None else []
+    jobs = []
+    for model, md, sw in experiments:
         for seed in seeds:
-            run = run_name(model, md, seed, a.quick, sw)
-            step(f"2. Train {run}", "src.train",
-                 ["--model", model, "--modality-dropout", str(md), "--swap-aug", str(sw),
-                  "--seed", str(seed), *q, *a.extra],
-                 done=RUNS_DIR / run / "config.json", force=a.force)
-            step(f"3. Evaluate {run} on {a.split}", "src.evaluate", ["--run", run, "--split", a.split],
-                 done=RUNS_DIR / run / f"eval_{a.split}.json", force=a.force)
-    step("4. Report", "src.report", ["--split", a.split, *q], force=True)
-    print("\nDone. Tables: runs/v3/summary_*.md | figures: report/figures/v3/")
+            args = [*extra, "--model", model, "--modality-dropout", str(md), "--swap-aug", str(sw),
+                    "--seed", str(seed), "--recipe", a.recipe, "--tag", a.tag,
+                    *workers, *(["--quick"] if a.quick else [])]
+            config, _ = training_config(args)
+            jobs.append((config, run_directory(config), args))
+
+    try:
+        manifests = {}
+        if a.split == "test":
+            # Preflight every run before any model evaluation. This branch never trains.
+            for config, directory, _ in jobs:
+                manifests[directory] = validate_training(directory, config, check_last=False)
+            dataset_metadata("test")
+        else:
+            try:
+                dataset = {s: dataset_metadata(s) for s in ("train", "val")}
+            except FileNotFoundError:
+                step("src.prepare_data", ["--splits", "train", "val"])
+                dataset = {s: dataset_metadata(s) for s in ("train", "val")}
+            for config, directory, args in jobs:
+                if (directory / "config.json").exists():
+                    manifest = validate_training(directory, config)
+                    if manifest["dataset"] != dataset:
+                        raise ValueError(f"Training data changed for {directory}. Use a new --tag.")
+                    print(f"[skip] verified training artifacts in {directory}")
+                    manifests[directory] = manifest
+                    continue
+                if (a.resume or "--resume" in a.extra) and directory.exists():
+                    args = [*args, "--resume"]
+                step("src.train", args)
+                manifests[directory] = validate_training(directory, config)
+
+        dataset = dataset_metadata(a.split)
+        for config, directory, _ in jobs:
+            manifest = manifests[directory]
+            if not all(evaluation_complete(evaluation_directory(directory, objective), a.split,
+                                           config, checkpoint, dataset)
+                       for objective, checkpoint in manifest["checkpoints"].items()
+                       if objective != "last" and checkpoint is not None):
+                step("src.evaluate", ["--run-dir", directory, "--split", a.split, "--workers", config["workers"]])
+        step("src.report", ["--split", a.split, *[arg for _, directory, _ in jobs
+                                                  for arg in ("--run-dir", directory)]])
+    except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError) as exc:
+        p.exit(1, f"Pipeline blocked: {exc}\n")
 
 
 if __name__ == "__main__":

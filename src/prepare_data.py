@@ -14,6 +14,7 @@ For every tweet-image pair in the OFFICIAL humanitarian split it
 
 Writes data/processed/{train,val,test}.csv and data/processed/stats.json.
 """
+import argparse
 import json
 import re
 
@@ -80,11 +81,15 @@ def build_split(name, ann):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--splits", nargs="+", choices=SPLIT_FILES, default=list(SPLIT_FILES))
+    args = parser.parse_args()
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     ann = load_annotations()
     print(f"Annotations: {len(ann)} tweet-image pairs from {ann['tweet_id'].nunique()} tweets")
-    stats = {}
-    for name in SPLIT_FILES:
+    stats_path = PROCESSED_DIR / "stats.json"
+    stats = json.loads(stats_path.read_text()) if stats_path.exists() else {}
+    for name in args.splits:
         df = build_split(name, ann)
         df.to_csv(PROCESSED_DIR / f"{name}.csv", index=False)
         stats[name] = {
@@ -95,8 +100,8 @@ def main():
             "image_labels": df["image_label"].value_counts().reindex(CLASSES, fill_value=0).to_dict(),
         }
         print(f"  {name:5s}: {len(df):6d} pairs | text-image conflict {stats[name]['conflict_rate']:.1%}")
-    (PROCESSED_DIR / "stats.json").write_text(json.dumps(stats, indent=2))
-    print("Saved data/processed/{train,val,test}.csv and stats.json")
+    stats_path.write_text(json.dumps(stats, indent=2))
+    print(f"Saved processed splits {', '.join(args.splits)} and stats.json")
 
 
 if __name__ == "__main__":

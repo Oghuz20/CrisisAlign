@@ -3,7 +3,7 @@
 All models return a dict of logits:
     text   (B, 5)  humanitarian class of the caption
     image  (B, 5)  humanitarian class of the image
-    agree  (B,)    1 = caption and image tell the same story (multimodal only)
+    agree  (B,)    1 = caption and image have equal humanitarian labels (fusion only)
 
 Late fusion: each modality is encoded separately (DistilBERT, MobileNetV3),
 projected to 256 dims, and the two vectors are concatenated. A missing
@@ -21,15 +21,15 @@ N_CLASSES = len(CLASSES)
 
 
 class TextEncoder(nn.Module):
-    def __init__(self, name, dropout=ENCODER_DROPOUT):
+    def __init__(self, name, dropout=ENCODER_DROPOUT, pretrained=True, revision=None):
         super().__init__()
-        cfg = AutoConfig.from_pretrained(name)
+        cfg = AutoConfig.from_pretrained(name, revision=revision)
         # Stronger internal dropout (v3). Names differ between model families.
         for key in ("dropout", "attention_dropout",                       # DistilBERT
                     "hidden_dropout_prob", "attention_probs_dropout_prob"):  # BERT-style
-            if hasattr(cfg, key):
+            if dropout is not None and hasattr(cfg, key):
                 setattr(cfg, key, dropout)
-        self.bert = AutoModel.from_pretrained(name, config=cfg)
+        self.bert = AutoModel.from_pretrained(name, config=cfg) if pretrained else AutoModel.from_config(cfg)
         self.dim = self.bert.config.hidden_size if hasattr(self.bert.config, "hidden_size") \
             else self.bert.config.dim
 
@@ -54,9 +54,9 @@ def head(in_dim, out_dim, dropout=0.3):
 
 
 class TextOnly(nn.Module):
-    def __init__(self, text_model, **_):
+    def __init__(self, text_model, encoder_dropout=ENCODER_DROPOUT, pretrained=True, revision=None):
         super().__init__()
-        self.text_enc = TextEncoder(text_model)
+        self.text_enc = TextEncoder(text_model, encoder_dropout, pretrained, revision)
         self.text_head = head(self.text_enc.dim, N_CLASSES)
 
     def forward(self, b):
@@ -64,9 +64,9 @@ class TextOnly(nn.Module):
 
 
 class ImageOnly(nn.Module):
-    def __init__(self, pretrained=True, **_):
+    def __init__(self, pretrained=True, fusion_dropout=FUSION_DROPOUT):
         super().__init__()
-        self.image_enc = ImageEncoder(pretrained)
+        self.image_enc = ImageEncoder(pretrained, fusion_dropout)
         self.image_head = head(self.image_enc.dim, N_CLASSES)
 
     def forward(self, b):
@@ -74,13 +74,16 @@ class ImageOnly(nn.Module):
 
 
 class LateFusion(nn.Module):
-    def __init__(self, text_model, pretrained=True, proj_dim=256, modality_dropout=0.0):
+    def __init__(self, text_model, pretrained=True, proj_dim=256, modality_dropout=0.0,
+                 encoder_dropout=ENCODER_DROPOUT, fusion_dropout=FUSION_DROPOUT, text_pretrained=True,
+                 text_revision=None):
         super().__init__()
-        self.text_enc, self.image_enc = TextEncoder(text_model), ImageEncoder(pretrained)
+        self.text_enc = TextEncoder(text_model, encoder_dropout, text_pretrained, text_revision)
+        self.image_enc = ImageEncoder(pretrained, fusion_dropout)
         self.text_proj = nn.Sequential(nn.Linear(self.text_enc.dim, proj_dim), nn.GELU(),
-                                       nn.Dropout(FUSION_DROPOUT))
+                                       nn.Dropout(fusion_dropout))
         self.image_proj = nn.Sequential(nn.Linear(self.image_enc.dim, proj_dim), nn.GELU(),
-                                        nn.Dropout(FUSION_DROPOUT))
+                                        nn.Dropout(fusion_dropout))
         self.missing_text = nn.Parameter(torch.zeros(proj_dim))
         self.missing_image = nn.Parameter(torch.zeros(proj_dim))
         self.p = modality_dropout
@@ -109,13 +112,17 @@ class LateFusion(nn.Module):
                 "agree": self.agree_head(z).squeeze(1)}
 
 
-def build_model(kind, text_model, pretrained=True, modality_dropout=0.0):
+def build_model(kind, text_model, pretrained=True, modality_dropout=0.0,
+                encoder_dropout=ENCODER_DROPOUT, fusion_dropout=FUSION_DROPOUT, text_pretrained=True,
+                text_revision=None):
     if kind == "text":
-        return TextOnly(text_model=text_model)
+        return TextOnly(text_model, encoder_dropout, text_pretrained, text_revision)
     if kind == "image":
-        return ImageOnly(pretrained=pretrained)
+        return ImageOnly(pretrained, fusion_dropout)
     if kind == "multimodal":
-        return LateFusion(text_model, pretrained, modality_dropout=modality_dropout)
+        return LateFusion(text_model, pretrained, modality_dropout=modality_dropout,
+                          encoder_dropout=encoder_dropout, fusion_dropout=fusion_dropout,
+                          text_pretrained=text_pretrained, text_revision=text_revision)
     raise ValueError(kind)
 
 

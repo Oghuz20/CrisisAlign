@@ -1,190 +1,185 @@
-"""Step 4: collect all runs into the final tables and figures.
-
-Run from the project root:
-    python -m src.report                 # validation
-    python -m src.report --split test    # once, at the end
-    python -m src.report --quick         # summarise the *_quick pipeline-check runs
-
-Writes
-    runs/v3/summary_<split>.md / .csv  clean results + stress tests (mean ± std over seeds)
-    report/figures/v3/stress_test_<split>.png
-    report/figures/v3/learning_curves.png
-The "pair of unimodal models" warning baseline flags a conflict whenever the
-text-only and image-only models predict different classes.
-"""
+"""Build tables for explicit run directories or committed historical results."""
 import argparse
-import json
+import csv
+from collections import defaultdict
+from pathlib import Path
+from statistics import mean, stdev
 
-import numpy as np
-import pandas as pd
+from src.artifacts import (CONDITIONS, evaluation_complete, evaluation_directory, identity,
+                           model_name, read_json)
+from src.config import ROOT
 
-from src.config import EXPERIMENT, FIG_DIR, RUNS_DIR
-from src.data import CONDITIONS
-from src.metrics import agreement_metrics, softmax
-
-SEEDS = (42, 43, 44)
-MODELS = ("text", "image", "multimodal", "multimodal_md0.3", "multimodal_swap0.25")
-
-
-def run_id(model, seed, quick):
-    return f"{model}_seed{seed}{'_quick' if quick else ''}"
+FIELDS = ("model", "seed", "objective", "checkpoint_epoch", "checkpoint_sha256",
+          "condition", "subset", "output", "macro_f1", "accuracy", "critical_recall", "ece",
+          "conflict_f1", "conflict_precision", "conflict_recall", "conflict_ap", "conflict_auroc")
 
 
-def collect(split, quick):
-    rows = []
-    for model in MODELS:
-        for seed in SEEDS:
-            path = RUNS_DIR / run_id(model, seed, quick) / f"eval_{split}.json"
-            if not path.exists():
+def evaluation_rows(run_dir, split, archive):
+    manifest = read_json(run_dir / "config.json")
+    config = manifest if archive else manifest["training_config"]
+    if archive:
+        checkpoints = {"classification": {"epoch": config["best_epoch"]}}
+    else:
+        checkpoints = {key: record for key, record in manifest["checkpoints"].items()
+                       if key != "last" and record is not None}
+    for objective, checkpoint in checkpoints.items():
+        directory = evaluation_directory(run_dir, objective)
+        path = directory / f"eval_{split}.json"
+        if archive and not path.is_file():
+            continue
+        if not archive:
+            meta = read_json(directory / f"evaluation_{split}.json")
+            if not evaluation_complete(directory, split, config, checkpoint, meta["dataset"]):
+                raise ValueError(f"Incomplete evaluation artifacts: {directory}")
+        common = {"model": model_name({"modality_dropout": 0, "swap_aug": 0, **config}),
+                  "seed": config["seed"], "objective": objective,
+                  "checkpoint_epoch": checkpoint["epoch"], "checkpoint_sha256": checkpoint.get("sha256")}
+        for condition, subsets in read_json(path).items():
+            for subset, outputs in subsets.items():
+                for output, metrics in outputs.items():
+                    yield {**common, "condition": condition, "subset": subset, "output": output,
+                           **{key: value for key, value in metrics.items() if key in FIELDS}}
+
+
+def archived_baselines(directory, split, quick):
+    path = directory / f"summary_{split}{'_quick' if quick else ''}.csv"
+    if not path.exists():
+        return
+    with path.open(newline="", encoding="utf-8") as stream:
+        for row in csv.DictReader(stream):
+            if row["model"] not in ("text+image pair", "always conflict"):
                 continue
-            res = json.loads(path.read_text())
-            for cond in CONDITIONS:
-                if cond not in res:
-                    continue
-                for subset, r in res[cond].items():
-                    for h in ("text", "image"):
-                        if h in r:
-                            rows.append({"model": model, "seed": seed, "condition": cond,
-                                         "subset": subset, "output": h,
-                                         "macro_f1": r[h]["macro_f1"],
-                                         "critical_recall": r[h]["critical_recall"],
-                                         "ece": r[h]["ece"]})
-                    if "warning" in r:
-                        rows.append({"model": model, "seed": seed, "condition": cond,
-                                     "subset": subset, "output": "warning",
-                                     "macro_f1": r["warning"]["conflict_f1"],
-                                     "critical_recall": r["warning"]["conflict_recall"],
-                                     "ece": np.nan,
-                                     "auroc": r["warning"].get("conflict_auroc", np.nan)})
-    return pd.DataFrame(rows)
+            yield {"model": row["model"], "seed": int(row["seed"]), "objective": "classification",
+                   "condition": row["condition"], "subset": row["subset"], "output": "warning",
+                   "conflict_f1": float(row["macro_f1"]), "conflict_recall": float(row["critical_recall"]),
+                   "conflict_auroc": float(row["auroc"]) if row["auroc"] else None}
 
 
-def warning_baselines(split, quick):
-    """Two reference points for the conflict warning (clean input):
-    - "always conflict": flags every post; its F1 is high only because conflicts are common;
-    - "text+image pair": flags a conflict when separate text-only and image-only models
-      predict different classes (soft score = 1 - sum_c p_text(c) * p_image(c)).
-    """
-    rows = []
-    for seed in SEEDS:
-        for cond in CONDITIONS:
-            t = RUNS_DIR / run_id("text", seed, quick) / f"pred_{split}_{cond}.npz"
-            v = RUNS_DIR / run_id("image", seed, quick) / f"pred_{split}_{cond}.npz"
-            if not (t.exists() and v.exists()):
-                continue
-            a, b = np.load(t), np.load(v)
-            y = a["y_agree"]
-            pt, pv = softmax(a["text"]), softmax(b["image"])
-            pair = agreement_metrics(1 - (pt * pv).sum(1), y)
-            pair_hard = agreement_metrics((pt.argmax(1) != pv.argmax(1)).astype(float), y)
-            entries = [("text+image pair", pair_hard, pair.get("conflict_auroc", np.nan))]
-            if cond == "clean":
-                entries.append(("always conflict", agreement_metrics(np.ones(len(y)), y), 0.5))
-            for name, m, auroc in entries:
-                rows.append({"model": name, "seed": seed, "condition": cond, "subset": "all",
-                             "output": "warning", "macro_f1": m["conflict_f1"],
-                             "critical_recall": m["conflict_recall"], "ece": np.nan,
-                             "auroc": auroc})
-    return pd.DataFrame(rows)
+def pair_baselines(runs, split):
+    # Pair only runs in the same experiment and with equivalent training settings.
+    pairs = defaultdict(dict)
+    for directory in runs:
+        config = read_json(directory / "config.json")["training_config"]
+        if config["model"] in ("text", "image"):
+            key = identity({k: v for k, v in config.items() if k != "model"})
+            if config["model"] in pairs[key]:
+                raise ValueError(f"Duplicate unimodal run for the same configuration: {directory}")
+            pairs[key][config["model"]] = (directory, config["seed"])
+    for pair in pairs.values():
+        if set(pair) != {"text", "image"}:
+            continue
+        import numpy as np
+
+        from src.metrics import agreement_metrics, softmax
+
+        text, seed = pair["text"]
+        image, _ = pair["image"]
+        for condition in CONDITIONS:
+            suffix = f"pred_{split}_{condition}.npz"
+            with np.load(text / suffix) as t, np.load(image / suffix) as v:
+                for key in ("tweet_id", "image_id", "y_agree", "y_text_label", "y_image_label"):
+                    if not np.array_equal(t[key], v[key]):
+                        raise ValueError(f"Unaligned text/image predictions for seed {seed}, {condition}: {key}")
+                y = t["y_agree"]
+                pt, pv = softmax(t["text"]), softmax(v["image"])
+                hard = agreement_metrics((pt.argmax(1) != pv.argmax(1)).astype(float), y)
+                soft = agreement_metrics(1 - (pt * pv).sum(1), y)
+                hard["conflict_ap"] = soft["conflict_ap"]
+                hard["conflict_auroc"] = soft.get("conflict_auroc")
+                common = {"seed": seed, "objective": "classification", "condition": condition,
+                          "subset": "all", "output": "warning"}
+                yield {**common, "model": "text+image pair", **hard}
+                if condition == "clean":
+                    yield {**common, "model": "always conflict", **agreement_metrics(np.ones(len(y)), y)}
 
 
-def fmt(g):
-    m, s, n = g.mean(), g.std(), g.count()
-    return f"{m:.4f} ± {s:.4f}" if n > 1 else f"{m:.4f}"
+def table(rows, group_keys, metrics):
+    groups = defaultdict(list)
+    for row in rows:
+        groups[tuple(row[key] for key in group_keys)].append(row)
+    columns = (*group_keys, "n", *metrics)
+    lines = ["| " + " | ".join(columns) + " |", "| " + " | ".join("---" for _ in columns) + " |"]
+    for key, group in sorted(groups.items()):
+        cells = [*key, str(len(group))]
+        for metric in metrics:
+            values = [row[metric] for row in group if row.get(metric) is not None]
+            if len(values) > 1:
+                cells.append(f"{mean(values):.4f} ± {stdev(values):.4f} ({len(values)})")
+            else:
+                cells.append(f"{values[0]:.4f} (1)" if values else "—")
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines) if groups else "No results available."
 
 
-def plot_stress(df, path):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    d = df[(df["subset"] == "all") & (df["output"].isin(["text", "image"]))]
-    fig, axes = plt.subplots(1, 2, figsize=(11, 3.6), sharey=True)
-    for ax, out in zip(axes, ("text", "image")):
-        g = d[d["output"] == out].groupby(["condition", "model"])["macro_f1"].mean().unstack()
-        g = g.reindex([c for c in CONDITIONS if c in g.index])
-        g.plot.bar(ax=ax, rot=20)
-        ax.set_title(f"{out} label")
-        ax.set_ylabel("macro-F1")
-        ax.set_xlabel("")
-        ax.grid(axis="y", alpha=0.3)
-        ax.legend(fontsize=7)
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
+def write_report(rows, split, output):
+    output.mkdir(parents=True, exist_ok=True)
+    with (output / f"summary_{split}.csv").open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+    label = [r for r in rows if r["output"] != "warning"]
+    warning = [r for r in rows if r["output"] == "warning"]
+    warning_metrics = ("conflict_f1", "conflict_precision", "conflict_recall", "conflict_ap", "conflict_auroc")
+    text = [
+        f"# Humanitarian-label disagreement results on {split}",
+        "Results are mean ± sample SD when multiple seeds contribute. Parentheses give metric support in seeds.",
+        "Fusion F1, precision and recall use disagreement score > 0.5. The independent pair uses hard "
+        "class disagreement for those metrics and the soft score for AP and AUROC.",
+        "A missing-input warning predicts the original pair’s label disagreement from the visible input. "
+        "The corresponding hidden-label classification result measures label inference.",
+        "## Clean classification",
+        table([r for r in label if r["condition"] == "clean"], ("objective", "model", "output", "subset"),
+              ("macro_f1", "accuracy", "critical_recall", "ece")),
+        "## Disagreement warning",
+        table(warning, ("objective", "model", "condition"), warning_metrics),
+        "## Stress-test classification",
+        table([r for r in label if r["subset"] == "all" and r["condition"] != "clean"],
+              ("objective", "model", "output", "condition"), ("macro_f1",)),
+    ]
+    path = output / f"summary_{split}.md"
+    path.write_text("\n\n".join(text) + "\n", encoding="utf-8")
+    print(f"Saved {path}")
 
 
-def plot_curves(quick, path):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    fig, axes = plt.subplots(1, len(MODELS), figsize=(13, 3), sharey=True)
-    for ax, model in zip(axes, MODELS):
-        h = RUNS_DIR / run_id(model, SEEDS[0], quick) / "history.csv"
-        ax.set_title(model, fontsize=9)
-        if h.exists():
-            h = pd.read_csv(h)
-            ax.plot(h["epoch"], h["train_loss"], marker="o", ms=3, label="train")
-            ax.plot(h["epoch"], h["val_loss"], marker="o", ms=3, label="validation")
-            ax.set_xlabel("epoch")
-            ax.grid(alpha=0.3)
-    axes[0].set_ylabel("loss")
-    axes[0].legend(fontsize=8)
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
-
-
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--split", default="val", choices=["val", "test"])
-    p.add_argument("--quick", action="store_true")
-    args = p.parse_args()
-    df = pd.concat([collect(args.split, args.quick), warning_baselines(args.split, args.quick)],
-                   ignore_index=True)
-    if df.empty:
-        raise SystemExit("No evaluation results found: run training and evaluation first.")
-    sfx = f"{args.split}{'_quick' if args.quick else ''}"
-    FIG_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_csv(RUNS_DIR / f"summary_{sfx}.csv", index=False)
-
-    clean = df[df["condition"] == "clean"]
-    lab, warn = clean[clean["output"] != "warning"], clean[clean["output"] == "warning"]
-    label_tab = (lab.groupby(["output", "model", "subset"])["macro_f1"].apply(fmt)
-                 .unstack("subset").reindex(columns=["all", "agree", "conflict"]))
-    label_tab = label_tab.join(lab[lab["subset"] == "all"].groupby(["output", "model"])
-                               ["critical_recall"].apply(fmt).rename("critical_recall"))
-    label_tab = label_tab.join(lab[lab["subset"] == "all"].groupby(["output", "model"])
-                               ["ece"].apply(fmt).rename("ECE"))
-    order = ["always conflict", "text+image pair", "multimodal", "multimodal_md0.3",
-             "multimodal_swap0.25"]
-    warn_tab = (warn.groupby("model")[["macro_f1", "critical_recall", "auroc"]]
-                .agg(lambda g: fmt(g.dropna()) if g.notna().any() else "-")
-                .rename(columns={"macro_f1": "conflict_F1", "critical_recall": "conflict_recall",
-                                 "auroc": "AUROC"})
-                .reindex([m for m in order if m in set(warn["model"])]))
-    all_rows = df[df["subset"] == "all"]
-    stress = (all_rows[all_rows["output"] != "warning"]
-              .groupby(["output", "model", "condition"])["macro_f1"].mean()
-              .unstack("condition").reindex(columns=list(CONDITIONS))).round(4)
-    w = all_rows[(all_rows["output"] == "warning") & all_rows["auroc"].notna()]
-    stress_warn = (w[w["model"] != "always conflict"]
-                   .groupby(["model", "condition"])["auroc"].mean()
-                   .unstack("condition").reindex(columns=list(CONDITIONS))).round(4)
-
-    text = [f"# Results on {args.split} (experiment {EXPERIMENT})", "",
-            "## Clean input: humanitarian labels (macro-F1 overall and on agree / conflict posts)", "",
-            label_tab.to_string(), "",
-            "## Clean input: conflict warning", "",
-            warn_tab.to_string(), "",
-            "## Stress tests: label macro-F1 by condition (mean over seeds)", "",
-            stress.to_string(), "",
-            "## Stress tests: conflict-warning AUROC by condition", "",
-            stress_warn.to_string()]
-    (RUNS_DIR / f"summary_{sfx}.md").write_text("\n".join(text))
-    plot_stress(df, FIG_DIR / f"stress_test_{sfx}.png")
-    plot_curves(args.quick, FIG_DIR / "learning_curves.png")
-    print("\n".join(text[2:]))
-    print(f"\nSaved runs/{EXPERIMENT}/summary_{sfx}.md/.csv and report/figures/{EXPERIMENT}/")
+def main(argv=None):
+    p = argparse.ArgumentParser(description=__doc__)
+    mode = p.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--archive", choices=["v1", "v2"])
+    mode.add_argument("--run-dir", action="append", type=Path)
+    p.add_argument("--split", choices=["val", "test"], default="val")
+    p.add_argument("--quick", action="store_true", help="select the historical v1 quick validation runs")
+    args = p.parse_args(argv)
+    if args.quick and (args.archive, args.split) != ("v1", "val"):
+        p.error("--quick requires --archive v1 --split val")
+    try:
+        if args.archive:
+            archive = ROOT / "runs" / ("v2" if args.archive == "v2" else "")
+            runs = sorted(path.parent for path in archive.glob("*/config.json")
+                          if path.parent.name.endswith("_quick") == args.quick)
+            # Full v1 has validation histories but no full validation evaluation JSONs.
+            rows = [row for run in runs for row in evaluation_rows(run, args.split, archive=True)]
+            rows.extend(archived_baselines(archive, args.split, args.quick))
+            output = ROOT / "report" / "generated" / f"{args.archive}{'_quick' if args.quick else ''}"
+        else:
+            runs = sorted(set(path.resolve() for path in args.run_dir))
+            configs = [read_json(run / "config.json")["training_config"] for run in runs]
+            compare = {identity({k: v for k, v in config.items()
+                                 if k not in ("model", "seed", "modality_dropout", "swap_aug")})
+                       for config in configs}
+            if len(compare) != 1:
+                raise ValueError("Report runs must share training settings outside model, seed and interventions")
+            ids = [(model_name(config), config["seed"]) for config in configs]
+            if len(ids) != len(set(ids)):
+                raise ValueError("Report contains duplicate model/seed combinations")
+            rows = [row for run in runs for row in evaluation_rows(run, args.split, archive=False)]
+            rows.extend(pair_baselines(runs, args.split))
+            output = ROOT / "report" / "generated" / identity([str(path.relative_to(ROOT))
+                       if path.is_relative_to(ROOT) else str(path) for path in runs])[:16]
+        if not rows:
+            raise ValueError(f"No evaluation results found for {args.split}")
+        write_report(rows, args.split, output)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        p.exit(1, f"Report blocked: {exc}\n")
 
 
 if __name__ == "__main__":
