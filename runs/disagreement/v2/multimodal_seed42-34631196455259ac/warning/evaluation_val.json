@@ -1,0 +1,27 @@
+{
+  "checkpoint": {
+    "file": "best_warning_epoch2.pt",
+    "epoch": 2,
+    "metric": "conflict_ap",
+    "score": 0.8029342496477477,
+    "sha256": "60bef16b8f6fd15f99b5c804e2bd3b7db003a4a306eeb90d74d6f14ea6da7567"
+  },
+  "dataset": {
+    "file": "val.csv",
+    "sha256": "b9a2b96fb3bf78e4fe25886e797c2a7de7d4d9617b65638de55e67d7fd119ad9",
+    "bytes": 583008
+  },
+  "config_sha256": "34631196455259ac1fa1e2f2733bd383e25878847264999258413ca8135a3492",
+  "metrics_sha256": "192d791f061e4317d62063e1e85b8c456834b026763b5ba8994b0542b42814b7",
+  "predictions": {
+    "clean": "24ea06e0931dde3c983bad1ad1afa64a86c420297b5961f5f70082aeadf58305",
+    "text_missing": "103b31e5fbd5f67b81a7a11182428a434aa23ef3b5f92961e1878eee7de27488",
+    "image_missing": "dea4e7f5c22cec74bb393a4c0604c7f9877566fde9801345a33a94f38a155087",
+    "text_swapped": "4dce33959f51f470929fb7f2f12274edb130472dc3db4d7185361ff732848fa2",
+    "image_swapped": "4ccf97433fbf5cd172f9116157feb092af4901c654262dd54392f2cd6c3d6905"
+  },
+  "device": "cpu",
+  "torch": "2.15.0+cpu",
+  "cuda": null,
+  "autocast_dtype": null
+}

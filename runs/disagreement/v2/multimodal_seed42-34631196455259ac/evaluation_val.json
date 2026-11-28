@@ -1,0 +1,27 @@
+{
+  "checkpoint": {
+    "file": "best_classification_epoch3.pt",
+    "epoch": 3,
+    "metric": "macro_f1",
+    "score": 0.6852162408131615,
+    "sha256": "d891dd73e81776d828b83c7e0fc30aa6bc0aba1fdac8eb26cfe9db32d6ae36ef"
+  },
+  "dataset": {
+    "file": "val.csv",
+    "sha256": "b9a2b96fb3bf78e4fe25886e797c2a7de7d4d9617b65638de55e67d7fd119ad9",
+    "bytes": 583008
+  },
+  "config_sha256": "34631196455259ac1fa1e2f2733bd383e25878847264999258413ca8135a3492",
+  "metrics_sha256": "7731cdde1d76aac7cc979279e3eafccde6ebf7a6ca47eefc0f9d54f437f9d3fc",
+  "predictions": {
+    "clean": "e8cda8aacee264c20ee024530bfb89af0538498605f4c9f3dd7a86c173f2468d",
+    "text_missing": "8c51aaadf22784818a1fbd93fb0c22790f9a40894e64ed6af07def6e7f043656",
+    "image_missing": "6331590e4e68aa5905df33d1eedca1ca6f10583fb7df487e74dd17d099789279",
+    "text_swapped": "f6885625a583f6cef2adbc3603de153c58ad07f731f690a79375910bc98b0c30",
+    "image_swapped": "646465a4b401a3244b4cf61d4de03c1ca4e57cba912fea8f2fc3f095a0f088ef"
+  },
+  "device": "cpu",
+  "torch": "2.15.0+cpu",
+  "cuda": null,
+  "autocast_dtype": null
+}

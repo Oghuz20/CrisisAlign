@@ -1,0 +1,69 @@
+{
+  "training_config": {
+    "model": "multimodal",
+    "recipe": "v2",
+    "tag": "track2",
+    "modality_dropout": 0.0,
+    "swap_aug": 0.0,
+    "label_smoothing": 0.1,
+    "epochs": 5,
+    "batch_size": 32,
+    "lr_text": 2e-05,
+    "lr_image": 0.0001,
+    "lr_head": 0.001,
+    "weight_decay": 0.01,
+    "patience": 2,
+    "seed": 42,
+    "workers": 6,
+    "text_model": "distilbert-base-uncased",
+    "no_pretrained": false,
+    "device": "auto",
+    "quick": false,
+    "encoder_dropout": null,
+    "fusion_dropout": 0.0
+  },
+  "dataset": {
+    "train": {
+      "file": "train.csv",
+      "sha256": "c4d5ca190a25128b150a2820ec8ddccef39afa063e15ffd5a2eca28bfebe1b87",
+      "bytes": 3588241
+    },
+    "val": {
+      "file": "val.csv",
+      "sha256": "b9a2b96fb3bf78e4fe25886e797c2a7de7d4d9617b65638de55e67d7fd119ad9",
+      "bytes": 583008
+    }
+  },
+  "provenance": {
+    "git_commit": "a39bf52c57fb13bb0dde1275275e1a98f47b9b8d",
+    "source_dirty": false,
+    "source_sha256": {
+      "__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "artifacts.py": "91dcdf76149a21637dc546341b59243862cabcf104ab713c6f17707c4655c039",
+      "config.py": "e7c6249291c7742514bea9fc8db410c0c3b7b60f604aaef8b163b20cf1dc8ccc",
+      "data.py": "1750ef8dcef6c912040cc6e4bf665c29b97592b9612dbaaf8121569e97877042",
+      "evaluate.py": "534b350c35c4a6d3a591e962d0c076eb93ce118898a1a1bf154ea067c760a82d",
+      "metrics.py": "413c7800d7808a2ecd8cadd75c5038df089fc21506c649b8278bb95ca36760e0",
+      "models.py": "ffd93085948e186a0340b64aee0f43658eacbb228289a1820f37113660a2a8d0",
+      "precision.py": "5f84c441c6a2bc8e37688f97374a99d6bcbae3079e4004a01703d60637ea8860",
+      "prepare_data.py": "ec4f5a97b86165d43e712501af8c960bfb2f01b5f1917a309316c25f587c2567",
+      "report.py": "becf708434caf23112e9b9ae56e8e77afaf4b53880ee3d94040d0cb1ce66a348",
+      "reproduce.py": "ac549680122db60c3e30c9848895119a62e953a35438cdf4f52dca852db04507",
+      "train.py": "fb9f471cd9f58c51aad053f9c1fa584a6001b8c02bd7b8b3ad7d2dbf68646789"
+    },
+    "python": "3.14.6",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "packages": {
+      "torch": "2.15.0",
+      "torchvision": "0.29.2",
+      "transformers": "5.24.0",
+      "numpy": "2.5.5",
+      "pandas": "3.1.1",
+      "scikit-learn": "1.9.1"
+    },
+    "device": "cpu",
+    "cuda": null,
+    "autocast_dtype": null,
+    "gpu": null
+  }
+}
