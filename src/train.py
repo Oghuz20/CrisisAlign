@@ -13,10 +13,10 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, get_linear_schedule_with_warmup
 
-from src.artifacts import (checkpoint_record, dataset_metadata, identity, objectives,
+from src.artifacts import (checkpoint_record, dataset_metadata, identity, image_weighting, objectives,
                            read_json, run_directory, sha256, should_stop, training_config,
                            update_selection, validate_checkpoint, write_json)
-from src.config import MAX_TEXT_LEN, ROOT
+from src.config import CLASSES, MAX_TEXT_LEN, ROOT
 from src.data import Collator, CrisisDataset, load_split
 from src.metrics import evaluate_outputs
 from src.models import build_model, param_groups
@@ -36,12 +36,13 @@ def to_device(b, device):
     return {k: v.to(device, non_blocking=True) if torch.is_tensor(v) else v for k, v in b.items()}
 
 
-def compute_loss(out, b, smoothing=0.0):
+def compute_loss(out, b, smoothing=0.0, image_weights=None):
     loss = 0.0
     if "text" in out:
         loss = loss + F.cross_entropy(out["text"].float(), b["text_label"], label_smoothing=smoothing)
     if "image" in out:
-        loss = loss + F.cross_entropy(out["image"].float(), b["image_label"], label_smoothing=smoothing)
+        loss = loss + F.cross_entropy(out["image"].float(), b["image_label"], weight=image_weights,
+                                      label_smoothing=smoothing)
     if "agree" in out:
         loss = loss + AGREE_WEIGHT * F.binary_cross_entropy_with_logits(out["agree"].float(), b["agree"])
     return loss
@@ -177,6 +178,11 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.text_model)
     train_df = load_split("train", args.quick, args.seed)
     val_df = load_split("val", args.quick, args.seed)
+    weighting = image_weighting(train_df["image_label"]) if config.get("image_class_weighting") else None
+    image_weights = (torch.tensor([weighting["weights"][name] for name in CLASSES],
+                                  device=device, dtype=torch.float32) if weighting else None)
+    if weighting:
+        print(f"Image classification weighting: {weighting}")
     gen = torch.Generator().manual_seed(args.seed)
     train_dl = make_loader(train_df, args.model, tokenizer, args.batch_size, True, args.workers, gen)
     val_dl = make_loader(val_df, args.model, tokenizer, args.batch_size * 2, False, args.workers)
@@ -226,7 +232,7 @@ def main():
             b = to_device(b, device)
             with torch.autocast(device.type, dtype=dtype, enabled=dtype is not None):
                 out = model(b)
-            loss = compute_loss(out, b, args.label_smoothing)
+            loss = compute_loss(out, b, args.label_smoothing, image_weights=image_weights)
             optimizer_step(loss, opt, sched, model.parameters(), scaler)
             total += loss.item() * len(b["agree"])
             n += len(b["agree"])
@@ -290,6 +296,8 @@ def main():
         "checkpoints": {**selected, "last": checkpoint_record(
             run_dir / "last.pt", hist[-1]["epoch"], None, None)},
     }
+    if weighting:
+        manifest["image_class_weighting_details"] = weighting
     write_json(run_dir / "config.json", manifest)
     print(f"Saved {run_dir}")
 

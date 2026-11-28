@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import re
+from collections import Counter
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
@@ -27,6 +28,8 @@ def training_config(argv=None):
     p.add_argument("--tag", default="main", help="new tag for a separate run of the same configuration")
     p.add_argument("--modality-dropout", type=float, default=0.0)
     p.add_argument("--swap-aug", type=float, default=0.0)
+    p.add_argument("--image-class-weighting", choices=["capped-sqrt"],
+                   help="opt in to mild train-derived weighting for image classification")
     p.add_argument("--label-smoothing", type=float, default=0.1)
     p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--batch-size", type=int, default=32)
@@ -52,6 +55,10 @@ def training_config(argv=None):
             p.error(f"{name} must be between 0 and 1")
     run = vars(args).copy()
     run.pop("resume")
+    if args.image_class_weighting is None:
+        run.pop("image_class_weighting")  # preserve baseline fingerprints and manifests
+    elif args.model == "text":
+        p.error("--image-class-weighting requires an image classification head")
     recipe = RECIPES[args.recipe]
     run.update(encoder_dropout=recipe["encoder_dropout"], fusion_dropout=recipe["fusion_dropout"],
                weight_decay=recipe["weight_decay"] if args.weight_decay is None else args.weight_decay,
@@ -66,6 +73,17 @@ def training_config(argv=None):
 def identity(config):
     encoded = json.dumps(config, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def image_weighting(labels):
+    """Capped inverse-square-root frequency relative to mean class support."""
+    observed = Counter(labels)
+    counts = {name: observed[name] for name in CLASSES}
+    if set(observed) != set(CLASSES):
+        raise ValueError("Image weighting requires positive train support for every configured class")
+    reference = sum(counts.values()) / len(counts)
+    weights = {name: min(1.5, max(0.75, math.sqrt(reference / n))) for name, n in counts.items()}
+    return {"method": "capped-sqrt", "counts": counts, "weights": weights}
 
 
 def model_name(config):
